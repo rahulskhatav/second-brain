@@ -54,6 +54,18 @@ export const CheckIcon = ({ size = 16, color = '#9184d9' }) => (
   </svg>
 );
 
+export const SignOutIcon = ({ size = 14 }) => (
+  <svg {...box(size)} fill="currentColor" style={{ flex: 'none' }}>
+    <path d="M112 216a8 8 0 01-8 8H48a16 16 0 01-16-16V48a16 16 0 0116-16h56a8 8 0 010 16H48v160h56a8 8 0 018 8zm109.7-93.7l-40-40a8 8 0 00-11.4 11.4L196.7 120H104a8 8 0 000 16h92.7l-26.4 26.3a8 8 0 0011.4 11.4l40-40a8 8 0 000-11.4z" />
+  </svg>
+);
+
+export const HistoryIcon = ({ size = 15 }) => (
+  <svg {...box(size)} fill="currentColor" style={{ flex: 'none' }}>
+    <path d="M136 80v43.5l35.9 21.5a8 8 0 01-8 13.8l-40-24a8 8 0 01-3.9-6.8V80a8 8 0 0116 0zm-8-48a95.4 95.4 0 00-68 28.2c-8.2 8.2-15.4 16.6-21.7 24.6V72a8 8 0 00-16 0v40a8 8 0 008 8h40a8 8 0 000-16H50.7c6.5-8.5 13.9-17.2 22.6-25.9a80 80 0 11-3 116.7 8 8 0 00-10.9 11.7A96 96 0 10128 32z" />
+  </svg>
+);
+
 export const InfoIcon = ({ size = 15, color = '#b5abfc', style }) => (
   <svg {...box(size)} fill={color} style={{ flex: 'none', ...style }}>
     <path d="M128 24a104 104 0 10104 104A104 104 0 00128 24zm0 176a12 12 0 1112-12 12 12 0 01-12 12zm8-48a8 8 0 01-16 0V80a8 8 0 0116 0z" />

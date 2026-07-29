@@ -19,13 +19,6 @@ export const EMBED_DIMS = 768;
 export class ReaderError extends Error {}
 
 /**
- * Turns a Gemini failure into something worth showing someone.
- *
- * Model names retire: a key issued today is refused `gemini-2.5-flash` with a
- * 404 even though ListModels still advertises it, so this names the model in
- * the message rather than letting it read as a problem with the article.
- */
-/**
  * Retry the failures that are the service having a moment.
  *
  * A 503 is Gemini being briefly unavailable, and it was losing whole articles:
@@ -46,6 +39,13 @@ async function withRetry(work, attempts = 3) {
   }
 }
 
+/**
+ * Turns a Gemini failure into something worth showing someone.
+ *
+ * Model names retire: a key issued today is refused `gemini-2.5-flash` with a
+ * 404 even though ListModels still advertises it, so this names the model in
+ * the message rather than letting it read as a problem with the article.
+ */
 function readerError(err, model) {
   const message = String(err?.message ?? err);
   const status = err?.status;
@@ -84,17 +84,21 @@ Rules for the summary:
 - Never invent detail that isn't in the text.
 
 Rules for the tags:
-- Three to five, lowercase, one to three words each.
+- FIVE to seven. Never fewer than five. Lowercase, one to three words each.
 - Chosen to be SHARED: two pieces on the same subject must land under the same word.
+- Work outward from the broadest honest category to the most specific: the field it
+  belongs to, then the subject, then what this particular piece is about. That way the
+  early tags gather articles together and the later ones tell them apart.
 - Prefer a tag from the owner's existing vocabulary whenever it genuinely fits; only coin a new
-  one when nothing there is right. Order them broadest first.`;
+  one when nothing there is right. Order them broadest first.
+- Never pad with a word the piece does not actually cover.`;
 
 const SCHEMA = {
   type: 'object',
   properties: {
     title: { type: 'string' },
     summary: { type: 'string' },
-    tags: { type: 'array', items: { type: 'string' }, minItems: 3, maxItems: 5 }
+    tags: { type: 'array', items: { type: 'string' }, minItems: 5, maxItems: 7 }
   },
   required: ['title', 'summary', 'tags']
 };
@@ -183,7 +187,7 @@ function cleanTags(tags) {
       .trim();
     if (tag.length >= 2 && tag.length <= 28 && !out.includes(tag)) out.push(tag);
   }
-  return out.slice(0, 5);
+  return out.slice(0, 7);
 }
 
 /* ── No-key fallbacks ────────────────────────────────────────────────────────
@@ -229,7 +233,7 @@ function extractiveSummary({ title, text, vocabulary }) {
 
   const ranked = [...freq.entries()].sort((a, b) => b[1] - a[1]).map(([w]) => w);
   const known = vocabulary.filter((t) => t.split(' ').every((part) => freq.has(part)));
-  const tags = cleanTags([...known, ...ranked].slice(0, 5));
+  const tags = cleanTags([...known, ...ranked].slice(0, 6));
 
   return {
     title,

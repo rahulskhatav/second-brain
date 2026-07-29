@@ -1,20 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import AddLink from '../components/AddLink.jsx';
 import ArticlePanel from '../components/ArticlePanel.jsx';
 import Constellation from '../components/Constellation.jsx';
 import Dust from '../components/Dust.jsx';
-import { CrosshairIcon, MinusIcon, PlusIcon, SearchIcon } from '../components/Icons.jsx';
+import { CrosshairIcon, HistoryIcon, MinusIcon, PlusIcon, SearchIcon } from '../components/Icons.jsx';
 import Mark from '../components/Mark.jsx';
+import ProfileMenu from '../components/ProfileMenu.jsx';
+import Timeline from '../components/Timeline.jsx';
 import { api } from '../lib/api.js';
-import { useAuth } from '../lib/auth.jsx';
 import { useIngest } from '../lib/useIngest.js';
 
 const day = (iso) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 
 export default function Sky() {
-  const { user, logout } = useAuth();
-  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
 
   const [graph, setGraph] = useState({ nodes: [], links: [], clusters: [] });
@@ -23,13 +22,17 @@ export default function Sky() {
   const [results, setResults] = useState([]);
   const [selectedId, setSelectedId] = useState(params.get('focus') ? Number(params.get('focus')) : null);
   const [adding, setAdding] = useState(false);
+  const [showTimeline, setShowTimeline] = useState(false);
+  const [articles, setArticles] = useState([]);
   const skyRef = useRef(null);
 
   const load = useCallback(
     () =>
-      api
-        .graph()
-        .then(setGraph)
+      Promise.all([
+        api.graph().then(setGraph),
+        // The timeline wants everything, including what is still being read.
+        api.articles().then((d) => setArticles(d.articles))
+      ])
         .catch(() => {})
         .finally(() => setLoading(false)),
     []
@@ -95,11 +98,6 @@ export default function Sky() {
     setAdding(false);
     ingest.reset();
   }, [ingest]);
-
-  const signOut = async () => {
-    await logout();
-    navigate('/', { replace: true });
-  };
 
   const isEmpty = !loading && graph.nodes.length === 0;
   const linkCount = graph.links.length;
@@ -172,12 +170,22 @@ export default function Sky() {
           <PlusIcon />
           Add a link
         </button>
-        <button className="sky-avatar" onClick={signOut} title={`Signed in as ${user?.username} — log out`}>
-          {(user?.username ?? '?').slice(0, 1)}
-        </button>
+        <ProfileMenu className="sky-avatar" />
       </div>
 
       {adding && <AddLink ingest={ingest} onClose={closeAdd} />}
+
+      {showTimeline && (
+        <Timeline
+          articles={articles}
+          selectedId={selectedId}
+          onSelect={(id) => {
+            setQuery('');
+            select(id);
+          }}
+          onClose={() => setShowTimeline(false)}
+        />
+      )}
 
       {!isEmpty && (
         <>
@@ -193,6 +201,16 @@ export default function Sky() {
               <div className="sep" />
               <button onClick={() => skyRef.current?.fit()} aria-label="Fit the whole sky">
                 <CrosshairIcon />
+              </button>
+              <div className="sep" />
+              <button
+                className={showTimeline ? 'is-on' : ''}
+                onClick={() => setShowTimeline((v) => !v)}
+                aria-label="Everything you've read, in order"
+                aria-pressed={showTimeline}
+                title="Everything you've read, in order"
+              >
+                <HistoryIcon />
               </button>
             </div>
             <div className="glass sky-count">

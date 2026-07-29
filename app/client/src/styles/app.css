@@ -703,7 +703,8 @@ textarea {
   display: flex;
   align-items: center;
   gap: 10px;
-  z-index: 3;
+  /* Above the article panel: adding a link must stay reachable while reading. */
+  z-index: 6;
 }
 .sky-bl {
   position: absolute;
@@ -985,7 +986,9 @@ textarea {
 .panel {
   position: absolute;
   right: 20px;
-  top: 20px;
+  /* Clears the floating chrome — the Add button and the avatar sit above this,
+     and the panel used to cover them. */
+  top: 68px;
   bottom: 20px;
   width: 412px;
   border-radius: var(--radius-md);

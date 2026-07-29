@@ -5,7 +5,23 @@
  * The five cluster colours are the design's, in order of cluster size. Anything
  * that belongs to none of the top five stays neutral.
  */
-export const CLUSTER_COLORS = ['#b5abfc', '#cfd3e5', '#b2b6ca', '#b5afe8', '#9397ab'];
+/**
+ * One colour per cluster, every article in a cluster painted the same.
+ *
+ * All five are Nocturne ramp steps, chosen to sit far apart in lightness and to
+ * alternate between the accent and neutral families — the system keeps chroma
+ * low, so separation has to come from value rather than hue. Ordered by cluster
+ * size, so the biggest clusters get the most distinct pair.
+ */
+export const CLUSTER_COLORS = [
+  '#b5abfc', // accent-400   — soft purple
+  '#cfd3e5', // neutral-300  — pale silver
+  '#7972a9', // accent-2-600 — deep lilac
+  '#e4e7f5', // neutral-200  — near white
+  '#9397ab'  // neutral-500  — mid grey
+];
+
+/** Belongs to no cluster: dimmer than any of them, and never mistaken for one. */
 export const UNCLUSTERED_COLOR = '#75798c';
 
 const NEIGHBOURS_PER_NODE = 3;
@@ -56,19 +72,64 @@ export function vocabulary(rows) {
   return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 }
 
-/** The five clusters, and which cluster each article falls into. */
+/**
+ * The clusters, and which one each article belongs to.
+ *
+ * Clusters partition the articles: every article is in at most one, so every
+ * article has exactly one colour. Building them straight from tag counts does
+ * not do that — articles share tags, so "machine learning", "language models"
+ * and "context windows" become three clusters over the same two articles, two
+ * of which are then empty of anyone who actually paints with them, and the
+ * legend claims groups that don't exist.
+ *
+ * So membership is decided first, and the clusters are what the membership
+ * turns out to be.
+ */
 export function clusterise(rows) {
-  const counts = vocabulary(rows);
-  // A cluster needs at least two members — one article is not a subject.
-  const clusters = counts.filter(([, n]) => n >= 2).slice(0, CLUSTER_COLORS.length)
-    .map(([name, count], i) => ({ index: i, name, count, color: CLUSTER_COLORS[i] }));
+  const ranked = vocabulary(rows).filter(([, n]) => n >= 2).map(([name]) => name);
+  const rank = new Map(ranked.map((tag, i) => [tag, i]));
+
+  // Each article claims the most-used tag it carries.
+  const claim = (candidates) => {
+    const picked = new Map();
+    for (const r of rows) {
+      const mine = parseTags(r.tags).filter((t) => candidates.has(t));
+      if (!mine.length) continue;
+      mine.sort((a, b) => rank.get(a) - rank.get(b));
+      picked.set(r.id, mine[0]);
+    }
+    return picked;
+  };
+
+  const first = claim(new Set(ranked));
+
+  // A cluster needs two members of its own — one article is not a subject, and
+  // a tag every member gave away to a broader tag is not a cluster either.
+  const tally = new Map();
+  for (const tag of first.values()) tally.set(tag, (tally.get(tag) ?? 0) + 1);
+
+  const kept = [...tally.entries()]
+    .filter(([, n]) => n >= 2)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, CLUSTER_COLORS.length)
+    .map(([name]) => name);
+
+  // Articles whose first choice didn't survive fall to the best cluster that did.
+  const final = claim(new Set(kept));
+
+  const sizes = new Map();
+  for (const tag of final.values()) sizes.set(tag, (sizes.get(tag) ?? 0) + 1);
+
+  const clusters = kept
+    .filter((name) => (sizes.get(name) ?? 0) >= 2)
+    .sort((a, b) => sizes.get(b) - sizes.get(a) || a.localeCompare(b))
+    .map((name, i) => ({ index: i, name, count: sizes.get(name), color: CLUSTER_COLORS[i] }));
 
   const byName = new Map(clusters.map((c) => [c.name, c]));
   const assignment = new Map();
   for (const r of rows) {
-    // Tags come broadest first, so the first that names a cluster wins.
-    const hit = parseTags(r.tags).find((t) => byName.has(t));
-    assignment.set(r.id, hit ? byName.get(hit) : null);
+    const tag = final.get(r.id);
+    assignment.set(r.id, tag && byName.has(tag) ? byName.get(tag) : null);
   }
   return { clusters, assignment };
 }

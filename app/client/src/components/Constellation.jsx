@@ -1,9 +1,41 @@
+import { forceCollide } from 'd3-force';
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
 import Dust from './Dust.jsx';
 
 const LABEL_FONT = 'Inter, system-ui, sans-serif';
 const alpha = (hex, aa) => `${hex}${aa}`;
+
+/**
+ * Node radius is in graph units, so it grows with the zoom. Fitting a sky of
+ * four articles to the viewport means zooming a long way in, and the stars come
+ * out as saucers — so the fit is capped. A full sky is unaffected; it needs
+ * less than this to fit.
+ */
+const MAX_FIT_ZOOM = 1.4;
+
+/**
+ * Bump when the forces change.
+ *
+ * Settled positions are stored and pinned, which is what keeps the sky still
+ * between visits — but it also means retuning the layout has no effect on a sky
+ * that has already settled. A version change makes the stored positions be
+ * ignored exactly once; the new ones are saved on the way out.
+ */
+const LAYOUT_VERSION = 2;
+const VERSION_KEY = 'sb:layout-version';
+
+const storedLayoutIsCurrent = () => {
+  try {
+    return Number(localStorage.getItem(VERSION_KEY) ?? 0) >= LAYOUT_VERSION;
+  } catch {
+    return false; // private mode, blocked storage — re-simulating is the safe answer
+  }
+};
+
+/** Core and halo, in graph units. Small: these are stars, not bubbles. */
+const nodeRadius = (t) => 1.7 + t * 3.1;
+const nodeHalo = (t) => 5.5 + t * 9.5;
 
 /**
  * The live sky: the user's own articles, placed by meaning.
@@ -34,14 +66,16 @@ const Constellation = forwardRef(function Constellation(
 
   /* Force-graph mutates the objects it's given, so it gets copies. Nodes that
      already have a stored position come back pinned (fx/fy). */
+  const honourStored = useRef(storedLayoutIsCurrent()).current;
+
   const graph = useMemo(() => {
     const nodes = (data?.nodes ?? []).map((n) => ({
       ...n,
-      ...(n.x != null && n.y != null ? { x: n.x, y: n.y, fx: n.x, fy: n.y } : {})
+      ...(honourStored && n.x != null && n.y != null ? { x: n.x, y: n.y, fx: n.x, fy: n.y } : {})
     }));
     const links = (data?.links ?? []).map((l) => ({ ...l }));
     return { nodes, links };
-  }, [data]);
+  }, [data, honourStored]);
 
   const maxDegree = useMemo(() => Math.max(1, ...graph.nodes.map((n) => n.degree ?? 0)), [graph]);
 
@@ -54,19 +88,19 @@ const Constellation = forwardRef(function Constellation(
     for (const n of [...graph.nodes].sort((a, b) => (b.degree ?? 0) - (a.degree ?? 0))) {
       if (placed.length >= 7) break;
       if (n.x == null || n.y == null) continue;
-      if (placed.some((p) => Math.abs(p.x - n.x) < 160 && Math.abs(p.y - n.y) < 18)) continue;
+      if (placed.some((p) => Math.abs(p.x - n.x) < 230 && Math.abs(p.y - n.y) < 26)) continue;
       placed.push(n);
     }
     return new Set(placed.map((n) => n.id));
   }, [graph, showLabels, dim]);
 
-  const radius = useCallback((node) => 2.1 + ((node.degree ?? 0) / maxDegree) * 4.4, [maxDegree]);
+  const radius = useCallback((node) => nodeRadius((node.degree ?? 0) / maxDegree), [maxDegree]);
 
   const paintNode = useCallback(
     (node, ctx, globalScale) => {
       const t = (node.degree ?? 0) / maxDegree;
-      const r = 2.1 + t * 4.4;
-      const halo = 7 + t * 13;
+      const r = nodeRadius(t);
+      const halo = nodeHalo(t);
 
       const lit = highlightIds ? highlightIds.has(node.id) : !dim;
       const isSelected = node.id === selectedId;
@@ -164,30 +198,87 @@ const Constellation = forwardRef(function Constellation(
       n.fy = n.y;
       positions.push({ id: n.id, x: +n.x.toFixed(2), y: +n.y.toFixed(2) });
     }
-    if (positions.length) onLayoutSettled?.(positions);
+    if (!positions.length) return;
+    onLayoutSettled?.(positions);
+    try {
+      localStorage.setItem(VERSION_KEY, String(LAYOUT_VERSION));
+    } catch {
+      /* storage blocked — the sky re-simulates next visit, which is only a cost */
+    }
   }, [graph, onLayoutSettled]);
 
   useEffect(() => {
     const fg = fgRef.current;
-    if (!fg || !graph.nodes.length) return;
-    fg.d3Force('charge')?.strength(-140).distanceMax(420);
-    fg.d3Force('link')?.distance((l) => 90 - (l.strength ?? 0.5) * 45).strength(0.5);
-    const t = setTimeout(() => fg.zoomToFit(600, 90), 60);
-    return () => clearTimeout(t);
-  }, [graph]);
+    if (!fg || !graph.nodes.length) return undefined;
+
+    // Airy rather than clustered: strong repulsion over a long range, links
+    // long enough that even a close pair keeps its distance, and a collision
+    // radius well beyond the halo so nothing overlaps.
+    fg.d3Force('charge')?.strength(-320).distanceMax(900);
+    fg.d3Force('link')
+      ?.distance((l) => 160 - (l.strength ?? 0.5) * 55)
+      .strength(0.35);
+    fg.d3Force('collide', forceCollide((node) => nodeHalo((node.degree ?? 0) / maxDegree) + 14).strength(0.9));
+
+    const fit = setTimeout(() => {
+      fg.zoomToFit(600, 110);
+      // zoomToFit animates, so the cap is applied once it has landed.
+      setTimeout(() => {
+        if (fg.zoom() > MAX_FIT_ZOOM) fg.zoom(MAX_FIT_ZOOM, 350);
+      }, 650);
+    }, 60);
+    return () => clearTimeout(fit);
+  }, [graph, maxDegree]);
 
   useImperativeHandle(ref, () => ({
     zoomIn: () => fgRef.current?.zoom(fgRef.current.zoom() * 1.35, 220),
     zoomOut: () => fgRef.current?.zoom(fgRef.current.zoom() / 1.35, 220),
-    fit: () => fgRef.current?.zoomToFit(500, 90),
+    fit: () => {
+      const fg = fgRef.current;
+      if (!fg) return;
+      fg.zoomToFit(500, 110);
+      setTimeout(() => {
+        if (fg.zoom() > MAX_FIT_ZOOM) fg.zoom(MAX_FIT_ZOOM, 300);
+      }, 550);
+    },
     centerOn: (id) => {
       const node = graph.nodes.find((n) => n.id === id);
       if (node) fgRef.current?.centerAt(node.x, node.y, 500);
     }
   }));
 
+  /**
+   * Clicking empty sky closes whatever is open.
+   *
+   * Done here rather than through onBackgroundClick because that also fires at
+   * the end of a pan — drag the map and the panel would shut. A press and
+   * release within a few pixels is a click; anything further is a drag.
+   */
+  const pressRef = useRef(null);
+
+  const onPointerDown = useCallback((e) => {
+    pressRef.current = { x: e.clientX, y: e.clientY };
+  }, []);
+
+  const onPointerUp = useCallback(
+    (e) => {
+      const down = pressRef.current;
+      pressRef.current = null;
+      if (!down) return;
+      if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) return; // dragged
+      if (hoverId != null) return; // landed on a node — onNodeClick has it
+      onSelect?.(null);
+    },
+    [hoverId, onSelect]
+  );
+
   return (
-    <div ref={wrapRef} className="sky-canvas">
+    <div
+      ref={wrapRef}
+      className="sky-canvas"
+      onPointerDown={onPointerDown}
+      onPointerUp={onPointerUp}
+    >
       <Dust />
       {size.width > 0 && (
         <ForceGraph2D
@@ -210,7 +301,6 @@ const Constellation = forwardRef(function Constellation(
           onEngineStop={handleEngineStop}
           onNodeClick={(node) => onSelect?.(node.id)}
           onNodeHover={(node) => setHoverId(node?.id ?? null)}
-          onBackgroundClick={() => onSelect?.(null)}
         />
       )}
     </div>

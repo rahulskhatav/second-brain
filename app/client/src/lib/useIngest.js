@@ -1,0 +1,94 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { api } from './api.js';
+
+/** The three stages the UI names, and how far along the bar each one sits. */
+export const STAGES = [
+  { key: 'fetching', name: 'Fetching', what: 'Page pulled, boilerplate stripped', at: 22 },
+  { key: 'reading', name: 'Reading', what: 'Writing your hundred words', at: 64 },
+  { key: 'connecting', name: 'Connecting', what: 'Finding its neighbours', at: 88 }
+];
+
+/**
+ * Reading one article, from either screen.
+ *
+ * Two requests, not one: `POST /articles` creates the row and returns, then the
+ * run request does the reading and stays open for as long as that takes —
+ * nothing may keep executing after a response on a serverless host. So the run
+ * is fired and left alone while this polls the row for the stage it has
+ * reached. A 409 means another article is being read; they go one at a time so
+ * each sees the tags already in use, so we wait and ask again.
+ */
+export function useIngest({ onReady } = {}) {
+  const [active, setActive] = useState(null);
+  const [failure, setFailure] = useState(null);
+  const pollRef = useRef(null);
+  const readyRef = useRef(onReady);
+  readyRef.current = onReady;
+
+  useEffect(() => {
+    if (!active || ['ready', 'failed'].includes(active.status)) return undefined;
+    pollRef.current = setTimeout(async () => {
+      try {
+        const { article } = await api.article(active.id);
+        setActive(article);
+        if (article.status === 'failed') setFailure(article);
+        if (article.status === 'ready') readyRef.current?.(article);
+      } catch {
+        setFailure({ error: 'We lost track of that one. Try it again.' });
+        setActive(null);
+      }
+    }, 800);
+    return () => clearTimeout(pollRef.current);
+  }, [active]);
+
+  const runUntilAccepted = useCallback(async (id) => {
+    for (let attempt = 0; attempt < 60; attempt++) {
+      try {
+        await api.runArticle(id);
+        return;
+      } catch (err) {
+        if (err.status !== 409) throw err;
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
+  }, []);
+
+  const submit = useCallback(
+    async (payload) => {
+      setFailure(null);
+      try {
+        const { article } = await api.addArticle(payload);
+        setActive(article);
+        // Deliberately not awaited — this request *is* the reading.
+        runUntilAccepted(article.id).catch((err) =>
+          setFailure({ error: err.message, errorKind: 'reader' })
+        );
+        return article;
+      } catch (err) {
+        setFailure({ error: err.message });
+        return null;
+      }
+    },
+    [runUntilAccepted]
+  );
+
+  const reset = useCallback(() => {
+    clearTimeout(pollRef.current);
+    setActive(null);
+    setFailure(null);
+  }, []);
+
+  const stageIndex = STAGES.findIndex((s) => s.key === active?.status);
+  const busy = Boolean(active) && !['ready', 'failed'].includes(active.status);
+
+  return {
+    active,
+    failure,
+    setFailure,
+    submit,
+    reset,
+    busy,
+    stageIndex,
+    progress: active?.status === 'ready' ? 100 : (STAGES[stageIndex]?.at ?? 8)
+  };
+}

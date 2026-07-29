@@ -845,6 +845,132 @@ textarea {
   border-radius: 50%;
 }
 
+/* — adding a link without leaving the sky — */
+.sky-add.is-open {
+  background: rgba(35, 37, 50, 0.94);
+  box-shadow: 0 0 0 1px var(--color-accent);
+}
+.add-link {
+  position: absolute;
+  right: 24px;
+  top: 68px;
+  width: 380px;
+  max-width: calc(100% - 48px);
+  padding: 14px 16px 16px;
+  z-index: 5;
+  background: rgba(35, 37, 50, 0.94);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 0 0 1px var(--color-neutral-700), 0 16px 40px rgba(0, 0, 0, 0.55);
+}
+.add-link-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.add-link-close {
+  background: none;
+  border: 0;
+  cursor: pointer;
+  color: rgba(233, 233, 237, 0.5);
+  font-size: 12px;
+  line-height: 1;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+}
+.add-link-close:hover {
+  background: rgba(233, 233, 237, 0.07);
+  color: var(--color-text);
+}
+.add-link-field {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 40px;
+}
+.add-link-field input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  outline: none;
+  color: var(--color-text);
+  font-size: 13.5px;
+  caret-color: var(--color-accent);
+}
+.add-link-field input::placeholder {
+  color: rgba(233, 233, 237, 0.42);
+}
+.add-link-text {
+  min-height: 110px;
+  resize: vertical;
+  font-size: 13.5px;
+}
+.add-link-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.add-link-alt {
+  margin-top: 10px;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  font-size: 12px;
+  color: rgba(233, 233, 237, 0.45);
+  text-align: left;
+}
+.add-link-alt:hover {
+  color: var(--color-accent-300);
+}
+.add-link-url {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: rgba(233, 233, 237, 0.55);
+  margin-bottom: 12px;
+}
+.add-link-url span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.add-link-stages {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+}
+.add-link-stages .is-active {
+  color: var(--color-accent-300);
+}
+.add-link-stages .is-done {
+  color: rgba(233, 233, 237, 0.7);
+}
+.add-link-stages .is-waiting {
+  color: rgba(233, 233, 237, 0.35);
+}
+.add-link-note {
+  margin-top: 12px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: rgba(233, 233, 237, 0.6);
+}
+.add-link-error {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--color-accent-300);
+}
+
 /* — article panel — */
 .panel-scrim {
   position: absolute;

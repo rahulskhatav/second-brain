@@ -1,15 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CheckIcon, InfoIcon, LinkIcon } from '../components/Icons.jsx';
 import TopBar from '../components/TopBar.jsx';
 import { api } from '../lib/api.js';
 import { takePendingLink } from '../lib/pending.js';
-
-const STAGES = [
-  { key: 'fetching', name: 'Fetching', what: 'Page pulled, boilerplate stripped', at: 22 },
-  { key: 'reading', name: 'Reading', what: 'Writing your hundred words', at: 64 },
-  { key: 'connecting', name: 'Connecting', what: 'Finding its neighbours', at: 88 }
-];
+import { STAGES, useIngest } from '../lib/useIngest.js';
 
 const sinceWords = (iso) => {
   if (!iso) return null;
@@ -25,12 +20,9 @@ const sinceWords = (iso) => {
 export default function Home() {
   const navigate = useNavigate();
   const [url, setUrl] = useState('');
-  const [active, setActive] = useState(null); // the article being ingested
-  const [failure, setFailure] = useState(null);
   const [pasting, setPasting] = useState(false);
   const [pastedText, setPastedText] = useState('');
   const [library, setLibrary] = useState({ articles: [], tags: [], clusters: [], lastAddedAt: null });
-  const pollRef = useRef(null);
 
   const loadLibrary = useCallback(() => {
     api.articles().then(setLibrary).catch(() => {});
@@ -38,73 +30,29 @@ export default function Home() {
 
   useEffect(loadLibrary, [loadLibrary]);
 
-  /* Poll the row until the pipeline lets go of it. */
-  useEffect(() => {
-    if (!active || ['ready', 'failed'].includes(active.status)) return undefined;
-    pollRef.current = setTimeout(async () => {
-      try {
-        const { article } = await api.article(active.id);
-        setActive(article);
-        if (article.status === 'ready') {
-          loadLibrary();
-          setTimeout(() => navigate(`/sky?focus=${article.id}`), 900);
-        }
-        if (article.status === 'failed') setFailure(article);
-      } catch {
-        setFailure({ error: 'We lost track of that one. Try it again.' });
-        setActive(null);
-      }
-    }, 800);
-    return () => clearTimeout(pollRef.current);
-  }, [active, loadLibrary, navigate]);
-
-  /**
-   * Create the row, then kick off the reading.
-   *
-   * The run request is deliberately not awaited: it stays open for as long as
-   * the reading takes, while the poll above watches the row move through its
-   * stages. If another article is already being read the server answers 409 and
-   * we come back to it — they're read one at a time so the tags line up.
-   */
-  const runUntilAccepted = useCallback(async (id) => {
-    for (let attempt = 0; attempt < 60; attempt++) {
-      try {
-        await api.runArticle(id);
-        return;
-      } catch (err) {
-        if (err.status !== 409) throw err;
-        await new Promise((r) => setTimeout(r, 2000));
-      }
+  // Same pipeline the sky's own intake uses — see lib/useIngest.js.
+  const { active, failure, submit, reset, stageIndex, progress } = useIngest({
+    onReady: (article) => {
+      loadLibrary();
+      setTimeout(() => navigate(`/sky?focus=${article.id}`), 900);
     }
-  }, []);
+  });
 
-  const submit = useCallback(
-    async (payload) => {
-      setFailure(null);
-      try {
-        const { article } = await api.addArticle(payload);
-        setActive(article);
-        setUrl('');
-        setPasting(false);
-        setPastedText('');
-        runUntilAccepted(article.id).catch((err) =>
-          setFailure({ error: err.message, errorKind: 'reader' })
-        );
-      } catch (err) {
-        setFailure({ error: err.message });
-      }
+  const send = useCallback(
+    (payload) => {
+      setUrl('');
+      setPasting(false);
+      setPastedText('');
+      return submit(payload);
     },
-    [runUntilAccepted]
+    [submit]
   );
 
   // A link pasted on the landing page before signing up gets read first.
   useEffect(() => {
     const pending = takePendingLink();
-    if (pending) submit({ url: pending });
-  }, [submit]);
-
-  const stageIndex = STAGES.findIndex((s) => s.key === active?.status);
-  const progress = active?.status === 'ready' ? 100 : (STAGES[stageIndex]?.at ?? 8);
+    if (pending) send({ url: pending });
+  }, [send]);
 
   const cloud = useMemo(() => {
     const max = library.tags[0]?.count ?? 1;
@@ -181,7 +129,7 @@ export default function Home() {
               className="home-paste"
               onSubmit={(e) => {
                 e.preventDefault();
-                if (url.trim()) submit({ url: url.trim() });
+                if (url.trim()) send({ url: url.trim() });
               }}
             >
               <div className="input">
@@ -219,7 +167,7 @@ export default function Home() {
             className="paste-text-area"
             onSubmit={(e) => {
               e.preventDefault();
-              if (pastedText.trim()) submit({ url: url.trim() || null, text: pastedText });
+              if (pastedText.trim()) send({ url: url.trim() || null, text: pastedText });
             }}
           >
             <textarea
@@ -257,8 +205,9 @@ export default function Home() {
                   className="btn btn-secondary"
                   style={{ marginTop: 12, fontSize: 13 }}
                   onClick={() => {
-                    setUrl(failure.url ?? url);
-                    setActive(null);
+                    const link = failure.url ?? url;
+                    reset();
+                    setUrl(link);
                     setPasting(true);
                   }}
                 >

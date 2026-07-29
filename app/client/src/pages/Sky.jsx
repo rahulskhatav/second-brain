@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import AddLink from '../components/AddLink.jsx';
 import ArticlePanel from '../components/ArticlePanel.jsx';
 import Constellation from '../components/Constellation.jsx';
 import Dust from '../components/Dust.jsx';
@@ -7,6 +8,7 @@ import { CrosshairIcon, MinusIcon, PlusIcon, SearchIcon } from '../components/Ic
 import Mark from '../components/Mark.jsx';
 import { api } from '../lib/api.js';
 import { useAuth } from '../lib/auth.jsx';
+import { useIngest } from '../lib/useIngest.js';
 
 const day = (iso) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 
@@ -20,6 +22,7 @@ export default function Sky() {
   const [query, setQuery] = useState(params.get('q') ?? '');
   const [results, setResults] = useState([]);
   const [selectedId, setSelectedId] = useState(params.get('focus') ? Number(params.get('focus')) : null);
+  const [adding, setAdding] = useState(false);
   const skyRef = useRef(null);
 
   const load = useCallback(
@@ -75,10 +78,23 @@ export default function Sky() {
     [setParams]
   );
 
+  // Adding without leaving the map: when it lands, the sky reloads underneath
+  // the panel and the new article is the one selected.
+  const ingest = useIngest({
+    onReady: (article) => {
+      load().then(() => select(article.id));
+    }
+  });
+
   const openFromSearch = (id) => {
     setQuery('');
     select(id);
   };
+
+  const closeAdd = useCallback(() => {
+    setAdding(false);
+    ingest.reset();
+  }, [ingest]);
 
   const signOut = async () => {
     await logout();
@@ -104,9 +120,13 @@ export default function Sky() {
               Your sky starts empty and that's fine. Add the last thing you read and come back tomorrow —
               connections need two.
             </p>
-            <Link className="btn btn-primary" style={{ marginTop: 22, minHeight: 42, paddingInline: 22 }} to="/home">
+            <button
+              className="btn btn-primary"
+              style={{ marginTop: 22, minHeight: 42, paddingInline: 22 }}
+              onClick={() => setAdding(true)}
+            >
               Add your first link
-            </Link>
+            </button>
           </div>
         </>
       ) : (
@@ -144,14 +164,20 @@ export default function Sky() {
       </div>
 
       <div className="sky-tr">
-        <Link className="btn btn-primary sky-add" to="/home">
+        <button
+          className={`btn btn-primary sky-add${adding ? ' is-open' : ''}`}
+          onClick={() => (adding ? closeAdd() : setAdding(true))}
+          aria-expanded={adding}
+        >
           <PlusIcon />
           Add a link
-        </Link>
+        </button>
         <button className="sky-avatar" onClick={signOut} title={`Signed in as ${user?.username} — log out`}>
           {(user?.username ?? '?').slice(0, 1)}
         </button>
       </div>
+
+      {adding && <AddLink ingest={ingest} onClose={closeAdd} />}
 
       {!isEmpty && (
         <>
@@ -226,7 +252,7 @@ export default function Sky() {
         </div>
       )}
 
-      {selectedId && !searching && (
+      {selectedId && !searching && !adding && (
         <ArticlePanel
           id={selectedId}
           onClose={() => select(null)}

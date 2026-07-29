@@ -55,6 +55,8 @@ const SCHEMA = `
     url        TEXT,
     site       TEXT,
     title      TEXT NOT NULL,
+    label      TEXT,                          -- at most three words, for the map
+    sections   TEXT,                          -- JSON: [{ heading, points[] }]
     summary    TEXT,
     source_text TEXT,
     tags       TEXT NOT NULL DEFAULT '[]',
@@ -69,6 +71,10 @@ const SCHEMA = `
   );
 
   CREATE INDEX IF NOT EXISTS idx_articles_user ON articles(user_id);
+
+  -- Added after the first deployment; databases created before it get it here.
+  ALTER TABLE articles ADD COLUMN IF NOT EXISTS label TEXT;
+  ALTER TABLE articles ADD COLUMN IF NOT EXISTS sections TEXT;
 `;
 
 /* Run once per instance rather than once per request — concurrent cold starts

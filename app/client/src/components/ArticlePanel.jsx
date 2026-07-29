@@ -78,6 +78,19 @@ export default function ArticlePanel({ id, onClose, onSelect, onForget }) {
           {error ?? article?.summary ?? 'Fetching the hundred words…'}
         </div>
 
+        {/* The detail, in buckets — a wall of prose is not something anyone
+            rereads, and the headings are fixed so every article reads alike. */}
+        {article?.sections?.map((section) => (
+          <section key={section.heading} className="panel-section">
+            <div className="kicker-quiet">{section.heading}</div>
+            <ul>
+              {section.points.map((point, i) => (
+                <li key={i}>{point}</li>
+              ))}
+            </ul>
+          </section>
+        ))}
+
         {!!article?.tags?.length && (
           <div className="panel-tags">
             {article.tags.map((t, i) => (

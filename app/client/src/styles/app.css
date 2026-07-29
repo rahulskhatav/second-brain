@@ -1234,6 +1234,41 @@ textarea {
   color: rgba(233, 233, 237, 0.82);
   text-wrap: pretty;
 }
+.panel-section {
+  padding: 18px 22px 0;
+}
+.panel-section .kicker-quiet {
+  color: var(--color-accent);
+  margin-bottom: 9px;
+}
+.panel-section ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.panel-section li {
+  position: relative;
+  padding-left: 15px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: rgba(233, 233, 237, 0.78);
+  text-wrap: pretty;
+}
+/* A mark rather than a bullet — the system draws points, not dots in a list. */
+.panel-section li::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 8px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-accent) 65%, transparent);
+}
+
 .panel-tags {
   padding: 20px 22px 0;
   display: flex;

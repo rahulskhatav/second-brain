@@ -7,6 +7,16 @@ import { buildGraph, clusterise, nearest, parseTags, vocabulary } from './graph.
 
 export const api = Router();
 
+/** Stored as JSON text; anything malformed simply means no sections. */
+const parseSections = (json) => {
+  try {
+    const value = JSON.parse(json ?? '[]');
+    return Array.isArray(value) ? value : [];
+  } catch {
+    return [];
+  }
+};
+
 const rowsFor = (userId) =>
   all('SELECT * FROM articles WHERE user_id = $1 ORDER BY added_at DESC', [userId]);
 
@@ -15,7 +25,9 @@ const publicArticle = (r) => ({
   url: r.url,
   site: r.site,
   title: r.title,
+  label: r.label ?? null,
   summary: r.summary,
+  sections: parseSections(r.sections),
   tags: parseTags(r.tags),
   status: r.status,
   error: r.error,

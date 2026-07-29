@@ -87,20 +87,18 @@ async function pipeline(article, userId) {
     [userId, id]
   );
   const vocab = vocabulary(others).map(([tag]) => tag);
-  const { title: finalTitle, summary, tags } = await summarise({
+  const { title: finalTitle, label, summary, sections, tags } = await summarise({
     title,
     text,
     vocabulary: vocab,
     titleIsReliable: !pastedText // pasted text has no headline of its own
   });
 
-  await query('UPDATE articles SET title = $1, summary = $2, tags = $3, status = $4 WHERE id = $5', [
-    finalTitle,
-    summary,
-    JSON.stringify(tags),
-    'connecting',
-    id
-  ]);
+  await query(
+    `UPDATE articles SET title = $1, label = $2, summary = $3, sections = $4, tags = $5, status = $6
+      WHERE id = $7`,
+    [finalTitle, label, summary, JSON.stringify(sections ?? []), JSON.stringify(tags), 'connecting', id]
+  );
 
   // 3 — connect: place it by meaning.
   const vector = await embed(`${finalTitle}\n\n${summary}\n\n${tags.join(', ')}\n\n${text.slice(0, 8000)}`);

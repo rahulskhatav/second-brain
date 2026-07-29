@@ -39,6 +39,35 @@ const NEIGHBOURS_PER_NODE = 3;
 const RELATIVE_CUT = 0.75;
 const ABSOLUTE_FLOOR = 0.15;
 
+/** Words that carry nothing when a headline has to become three words. */
+const LABEL_SKIP = new Set(
+  `a an the of and or for to in on at by from with why how what when which is are was were
+   its your our this that as into about`.split(/\s+/)
+);
+
+/**
+ * The name a node wears on the map: three words at most.
+ *
+ * Prefers the label the reader wrote, which summarises rather than truncates.
+ * Falls back to squeezing the title — for articles read before labels existed,
+ * and whenever there is no reader at all.
+ */
+export function shortLabel(candidate, fallbackTitle = '', max = 3) {
+  const tidy = (s) =>
+    String(s ?? '')
+      .replace(/["“”'’]/g, '')
+      .replace(/[—–:;,.!?]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+  const written = tidy(candidate).split(' ').filter(Boolean);
+  if (written.length) return written.slice(0, max).join(' ');
+
+  const all = tidy(fallbackTitle).split(' ').filter(Boolean);
+  const meaty = all.filter((w) => !LABEL_SKIP.has(w.toLowerCase()));
+  return (meaty.length ? meaty : all).slice(0, max).join(' ') || 'Untitled';
+}
+
 export const cosine = (a, b) => {
   if (!a || !b || a.length !== b.length) return 0;
   let dot = 0;
@@ -200,6 +229,8 @@ export function buildGraph(rows) {
     return {
       id: r.id,
       title: r.title,
+      // Articles read before labels existed still get one, from their title.
+      label: shortLabel(r.label, r.title),
       tags: parseTags(r.tags),
       cluster: cluster ? cluster.index : -1,
       clusterName: cluster ? cluster.name : null,

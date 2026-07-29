@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { condense } from './extract.js';
+import { shortLabel } from './graph.js';
 
 /**
  * How much of an article the reader gets.
@@ -78,10 +79,31 @@ Rules for the title:
   opening sentence, or trails off in an ellipsis, write your own: under 70
   characters, in the register of a headline, no trailing full stop.
 
+Rules for the label:
+- The name of this article on a map, where it sits beside a dot among many others.
+- AT MOST THREE WORDS. Two is better. Never a sentence, never a clause.
+- Summarise, do not truncate: name the subject, not the first words of the headline.
+  "The Shift from Model Scale to Context Window Length" is "Context Windows".
+  "Why RAG Beat Fine-Tuning for Domain Knowledge" is "RAG vs Fine-Tuning".
+- Drop leading articles and question words. Capitalise as a title.
+- Two articles on different things must not get the same label.
+
 Rules for the summary:
-- 90–120 words, plain prose, no preamble, no "this article".
-- Say what it argues and what it concludes, in the register of someone recounting it to a friend.
-- Never invent detail that isn't in the text.
+- 35–55 words. The gist, and only the gist — what the piece is and what it concludes.
+- Plain prose, no preamble, no "this article". The register of someone recounting it to a friend.
+- The detail belongs in the sections below, not here.
+
+Rules for the sections:
+- Two or three, in this order, using EXACTLY these headings and only the ones the
+  piece actually supports:
+  "What it argues"    — the claims it makes, one per point.
+  "The evidence"      — the specifics it rests on: numbers, cases, names, studies.
+  "Worth remembering" — what the owner would want back in a year, including the
+                        counter-arguments and caveats the piece concedes.
+- Two to four points under each heading. One sentence each, under 25 words.
+- No point repeats another, and none repeats the summary.
+- Never invent detail that isn't in the text. A section with nothing honest to
+  put in it is left out entirely.
 
 Rules for the tags:
 - FIVE to seven. Never fewer than five. Lowercase, one to three words each.
@@ -97,11 +119,42 @@ const SCHEMA = {
   type: 'object',
   properties: {
     title: { type: 'string' },
+    label: { type: 'string' },
     summary: { type: 'string' },
+    sections: {
+      type: 'array',
+      minItems: 2,
+      maxItems: 3,
+      items: {
+        type: 'object',
+        properties: {
+          heading: { type: 'string' },
+          points: { type: 'array', items: { type: 'string' }, minItems: 2, maxItems: 4 }
+        },
+        required: ['heading', 'points']
+      }
+    },
     tags: { type: 'array', items: { type: 'string' }, minItems: 5, maxItems: 7 }
   },
-  required: ['title', 'summary', 'tags']
+  required: ['title', 'label', 'summary', 'sections', 'tags']
 };
+
+const HEADINGS = ['What it argues', 'The evidence', 'Worth remembering'];
+
+/** Keeps the buckets to the three we asked for, in that order. */
+function cleanSections(sections) {
+  const out = [];
+  for (const s of Array.isArray(sections) ? sections : []) {
+    const heading = HEADINGS.find((h) => h.toLowerCase() === String(s?.heading ?? '').trim().toLowerCase());
+    if (!heading || out.some((o) => o.heading === heading)) continue;
+    const points = (Array.isArray(s.points) ? s.points : [])
+      .map((p) => String(p).trim().replace(/\s+/g, ' '))
+      .filter((p) => p.length > 3)
+      .slice(0, 4);
+    if (points.length) out.push({ heading, points });
+  }
+  return out.sort((a, b) => HEADINGS.indexOf(a.heading) - HEADINGS.indexOf(b.heading));
+}
 
 /** Writes the hundred words and picks the tags. Falls back to extraction with no API key. */
 export async function summarise({ title, text, vocabulary = [], titleIsReliable = true }) {
@@ -144,9 +197,14 @@ export async function summarise({ title, text, vocabulary = [], titleIsReliable 
     throw new ReaderError('The reader came back with something we could not parse.');
   }
 
+  const finalTitle = String(parsed.title || title).trim().slice(0, 240);
   return {
-    title: String(parsed.title || title).trim().slice(0, 240),
+    title: finalTitle,
+    // Trimmed to three words here as well as asked for in the prompt: the map
+    // has no room to be lenient about it.
+    label: shortLabel(parsed.label, finalTitle),
     summary: String(parsed.summary || '').trim(),
+    sections: cleanSections(parsed.sections),
     tags: cleanTags(parsed.tags)
   };
 }
@@ -235,9 +293,14 @@ function extractiveSummary({ title, text, vocabulary }) {
   const known = vocabulary.filter((t) => t.split(' ').every((part) => freq.has(part)));
   const tags = cleanTags([...known, ...ranked].slice(0, 6));
 
+  const sentences2 = picked.map((p) => p.s);
   return {
     title,
-    summary: picked.map((p) => p.s).join(' ') || text.slice(0, 600),
+    label: shortLabel(null, title), // squeezed from the title; no reader to write one
+    summary: sentences2.slice(0, 2).join(' ') || text.slice(0, 400),
+    // No reader to bucket anything, so the remaining central sentences go under
+    // the one heading that is honest about what they are.
+    sections: sentences2.length > 2 ? [{ heading: 'Worth remembering', points: sentences2.slice(2, 6) }] : [],
     tags: tags.length ? tags : ['unsorted']
   };
 }

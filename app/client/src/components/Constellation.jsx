@@ -201,11 +201,11 @@ const Constellation = forwardRef(function Constellation(
       const vs = sited.map(get);
       return Math.max(...vs) - Math.min(...vs) || 1;
     };
-    const gapX = span((n) => n.x) * 0.18;
+    const gapX = span((n) => n.x) * 0.1;
     const gapY = span((n) => n.y) * 0.045;
 
     for (const n of [...sited].sort((a, b) => (b.degree ?? 0) - (a.degree ?? 0))) {
-      if (placed.length >= 7) break;
+      if (placed.length >= 12) break;
       if (placed.some((p) => Math.abs(p.x - n.x) < gapX && Math.abs(p.y - n.y) < gapY)) continue;
       placed.push(n);
     }
@@ -344,8 +344,12 @@ const Constellation = forwardRef(function Constellation(
       }
 
       const wantsLabel = labelIds.has(node.id) || isHover || isSelected;
-      if (wantsLabel && node.title) {
-        const text = node.title.length > 34 ? `${node.title.slice(0, 33)}…` : node.title;
+      /* The short label, not the headline: a map wants the name of the thing,
+         and a line of prose beside every dot is unreadable at any density. The
+         full title is a click away in the panel. */
+      const naming = node.label || node.title;
+      if (wantsLabel && naming) {
+        const text = naming.length > 26 ? `${naming.slice(0, 25)}…` : naming;
         ctx.font = `400 ${11.5 / globalScale}px ${LABEL_FONT}`;
         ctx.textBaseline = 'middle';
         ctx.fillStyle = isHover || isSelected ? 'rgba(233,233,237,0.92)' : 'rgba(233,233,237,0.6)';
@@ -357,7 +361,7 @@ const Constellation = forwardRef(function Constellation(
         const tf = ctx.getTransform();
         const dpr = tf.a / globalScale || 1;
         const screenX = tf.a * node.x + tf.e;
-        const flip = screenX > ctx.canvas.width - 240 * dpr;
+        const flip = screenX > ctx.canvas.width - 150 * dpr;
 
         ctx.textAlign = flip ? 'right' : 'left';
         const offset = halo * 0.5 + px(7);

@@ -23,5 +23,21 @@ export default function handler(req, res) {
     req.url = original + (query ? `?${query}` : '');
   }
 
+  /**
+   * Vercel fills in req.cookies itself, and cookie-parser opens with
+   * `if (req.cookies) return next()` — so on the deployment it did nothing at
+   * all. That leaves req.secret unset, which makes signing the session cookie
+   * throw, and req.signedCookies empty, which would have meant no session ever
+   * authenticated. Clearing it hands cookie-parser its job back.
+   */
+  if (req.cookies !== undefined) {
+    try {
+      delete req.cookies;
+    } catch {
+      /* defined non-configurably — the assignment below still clears it */
+    }
+    if (req.cookies !== undefined) req.cookies = undefined;
+  }
+
   return app(req, res);
 }

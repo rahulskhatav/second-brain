@@ -8,15 +8,22 @@ const addedOn = (iso) =>
 /** The node you clicked, opened: the hundred words, its tags, and its neighbours. */
 export default function ArticlePanel({ id, onClose, onSelect, onForget }) {
   const [article, setArticle] = useState(null);
+  const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     let live = true;
     setArticle(null);
+    setError(null);
     api
       .article(id)
       .then((d) => live && setArticle(d.article))
-      .catch(() => live && setArticle(null));
+      .catch((err) => {
+        // Without this the panel sits on "Fetching the hundred words…" for
+        // ever — which is what a link to an article since forgotten does.
+        if (!live) return;
+        setError(err.status === 404 ? "That one isn't in your sky any more." : err.message);
+      });
     return () => {
       live = false;
     };
@@ -45,9 +52,9 @@ export default function ArticlePanel({ id, onClose, onSelect, onForget }) {
         <div className="panel-head">
           <div style={{ flex: 1 }}>
             <div className="kicker-quiet" style={{ color: 'var(--color-accent)', marginBottom: 12 }}>
-              {article ? `Added ${addedOn(article.addedAt)}` : 'Opening'}
+              {error ? 'Nothing here' : article ? `Added ${addedOn(article.addedAt)}` : 'Opening'}
             </div>
-            <h2>{article?.title ?? '…'}</h2>
+            <h2>{error ? 'Gone' : (article?.title ?? '…')}</h2>
           </div>
           <button className="panel-close" onClick={onClose} aria-label="Close">
             <CloseIcon />
@@ -68,7 +75,7 @@ export default function ArticlePanel({ id, onClose, onSelect, onForget }) {
         </div>
 
         <div className="panel-summary">
-          {article?.summary ?? 'Fetching the hundred words…'}
+          {error ?? article?.summary ?? 'Fetching the hundred words…'}
         </div>
 
         {!!article?.tags?.length && (
@@ -104,23 +111,31 @@ export default function ArticlePanel({ id, onClose, onSelect, onForget }) {
         )}
 
         <div className="panel-actions">
-          <a
-            className="btn btn-secondary"
-            style={{ flex: 1 }}
-            href={article?.url ?? '#'}
-            target="_blank"
-            rel="noreferrer noopener"
-          >
-            Open the original
-          </a>
-          <button
-            className="btn btn-ghost"
-            style={{ color: 'rgba(233,233,237,.5)', paddingInline: 10 }}
-            onClick={forget}
-            disabled={busy}
-          >
-            {busy ? 'Forgetting…' : 'Forget this'}
-          </button>
+          {error ? (
+            <button className="btn btn-secondary" style={{ flex: 1 }} onClick={onClose}>
+              Back to the sky
+            </button>
+          ) : (
+            <>
+              <a
+                className="btn btn-secondary"
+                style={{ flex: 1 }}
+                href={article?.url ?? '#'}
+                target="_blank"
+                rel="noreferrer noopener"
+              >
+                Open the original
+              </a>
+              <button
+                className="btn btn-ghost"
+                style={{ color: 'rgba(233,233,237,.5)', paddingInline: 10 }}
+                onClick={forget}
+                disabled={busy || !article}
+              >
+                {busy ? 'Forgetting…' : 'Forget this'}
+              </button>
+            </>
+          )}
         </div>
       </aside>
     </>

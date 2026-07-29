@@ -6,13 +6,11 @@ import Dust from './Dust.jsx';
 const LABEL_FONT = 'Inter, system-ui, sans-serif';
 const alpha = (hex, aa) => `${hex}${aa}`;
 
-/**
- * Node radius is in graph units, so it grows with the zoom. Fitting a sky of
- * four articles to the viewport means zooming a long way in, and the stars come
- * out as saucers — so the fit is capped. A full sky is unaffected; it needs
- * less than this to fit.
- */
-const MAX_FIT_ZOOM = 1.4;
+/** Only to stop a one-node sky zooming to absurdity. */
+const MAX_FIT_ZOOM = 6;
+
+/** Minimum separation between nodes, in graph units — what spreads the map. */
+const COLLIDE_RADIUS = 30;
 
 /**
  * Bump when the forces change.
@@ -22,7 +20,7 @@ const MAX_FIT_ZOOM = 1.4;
  * that has already settled. A version change makes the stored positions be
  * ignored exactly once; the new ones are saved on the way out.
  */
-const LAYOUT_VERSION = 2;
+const LAYOUT_VERSION = 3;
 const VERSION_KEY = 'sb:layout-version';
 
 const storedLayoutIsCurrent = () => {
@@ -33,9 +31,18 @@ const storedLayoutIsCurrent = () => {
   }
 };
 
-/** Core and halo, in graph units. Small: these are stars, not bubbles. */
-const nodeRadius = (t) => 1.7 + t * 3.1;
-const nodeHalo = (t) => 5.5 + t * 9.5;
+/**
+ * Stars are sized in screen pixels, not graph units.
+ *
+ * Sizing them in graph units ties how big a node looks to how far the view is
+ * zoomed: fitting a handful of articles to the viewport zooms a long way in and
+ * they come out as saucers, while capping the zoom to stop that shrinks the
+ * whole map to a speck instead. Dividing by the current scale at paint time
+ * breaks the link — the fit is free to fill the viewport, and a star is the
+ * same size whether you are looking at ten articles or a thousand.
+ */
+const corePx = (t) => 3.2 + t * 5;
+const haloPx = (t) => 11 + t * 18;
 
 /**
  * The live sky: the user's own articles, placed by meaning.
@@ -52,6 +59,11 @@ const Constellation = forwardRef(function Constellation(
   const wrapRef = useRef(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [hoverId, setHoverId] = useState(null);
+  /* Bumped when the layout settles. Which titles to print depends on where
+     nodes ended up, and on a sky being simulated for the first time they have
+     no position yet — without this the choice is made against nothing and no
+     title is ever drawn. */
+  const [settledAt, setSettledAt] = useState(0);
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -85,22 +97,33 @@ const Constellation = forwardRef(function Constellation(
   const labelIds = useMemo(() => {
     if (!showLabels || dim) return new Set();
     const placed = [];
-    for (const n of [...graph.nodes].sort((a, b) => (b.degree ?? 0) - (a.degree ?? 0))) {
+    const sited = graph.nodes.filter((n) => n.x != null && n.y != null);
+    if (!sited.length) return new Set();
+
+    // Keep-apart distances scale with the layout rather than being fixed graph
+    // units, which would mean something different at every zoom level.
+    const span = (get) => {
+      const vs = sited.map(get);
+      return Math.max(...vs) - Math.min(...vs) || 1;
+    };
+    const gapX = span((n) => n.x) * 0.18;
+    const gapY = span((n) => n.y) * 0.045;
+
+    for (const n of [...sited].sort((a, b) => (b.degree ?? 0) - (a.degree ?? 0))) {
       if (placed.length >= 7) break;
-      if (n.x == null || n.y == null) continue;
-      if (placed.some((p) => Math.abs(p.x - n.x) < 230 && Math.abs(p.y - n.y) < 26)) continue;
+      if (placed.some((p) => Math.abs(p.x - n.x) < gapX && Math.abs(p.y - n.y) < gapY)) continue;
       placed.push(n);
     }
     return new Set(placed.map((n) => n.id));
-  }, [graph, showLabels, dim]);
-
-  const radius = useCallback((node) => nodeRadius((node.degree ?? 0) / maxDegree), [maxDegree]);
+  }, [graph, showLabels, dim, settledAt]);
 
   const paintNode = useCallback(
     (node, ctx, globalScale) => {
       const t = (node.degree ?? 0) / maxDegree;
-      const r = nodeRadius(t);
-      const halo = nodeHalo(t);
+      // Screen pixels converted to graph units for this frame's zoom.
+      const px = (n) => n / globalScale;
+      const r = px(corePx(t));
+      const halo = px(haloPx(t));
 
       const lit = highlightIds ? highlightIds.has(node.id) : !dim;
       const isSelected = node.id === selectedId;
@@ -123,29 +146,29 @@ const Constellation = forwardRef(function Constellation(
       if (isSelected) {
         // The focus mark: two rings and a pair of ticks, as the design draws it.
         ctx.strokeStyle = '#9184d9';
-        ctx.lineWidth = 1.25 / globalScale;
+        ctx.lineWidth = px(1.25);
         ctx.beginPath();
-        ctx.arc(node.x, node.y, r + 9, 0, Math.PI * 2);
+        ctx.arc(node.x, node.y, r + px(9), 0, Math.PI * 2);
         ctx.stroke();
 
         ctx.strokeStyle = 'rgba(145,132,217,0.28)';
-        ctx.lineWidth = 1 / globalScale;
+        ctx.lineWidth = px(1);
         ctx.beginPath();
-        ctx.arc(node.x, node.y, r + 22, 0, Math.PI * 2);
+        ctx.arc(node.x, node.y, r + px(22), 0, Math.PI * 2);
         ctx.stroke();
 
         ctx.strokeStyle = 'rgba(145,132,217,0.5)';
         ctx.beginPath();
-        ctx.moveTo(node.x - r - 34, node.y);
-        ctx.lineTo(node.x - r - 14, node.y);
-        ctx.moveTo(node.x, node.y - r - 34);
-        ctx.lineTo(node.x, node.y - r - 14);
+        ctx.moveTo(node.x - r - px(34), node.y);
+        ctx.lineTo(node.x - r - px(14), node.y);
+        ctx.moveTo(node.x, node.y - r - px(34));
+        ctx.lineTo(node.x, node.y - r - px(14));
         ctx.stroke();
       } else if (isHover) {
         ctx.strokeStyle = 'rgba(145,132,217,0.55)';
-        ctx.lineWidth = 1 / globalScale;
+        ctx.lineWidth = px(1);
         ctx.beginPath();
-        ctx.arc(node.x, node.y, r + 6, 0, Math.PI * 2);
+        ctx.arc(node.x, node.y, r + px(6), 0, Math.PI * 2);
         ctx.stroke();
       }
 
@@ -153,23 +176,37 @@ const Constellation = forwardRef(function Constellation(
       if (wantsLabel && node.title) {
         const text = node.title.length > 34 ? `${node.title.slice(0, 33)}…` : node.title;
         ctx.font = `400 ${11.5 / globalScale}px ${LABEL_FONT}`;
-        ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
         ctx.fillStyle = isHover || isSelected ? 'rgba(233,233,237,0.92)' : 'rgba(233,233,237,0.6)';
-        ctx.fillText(text, node.x + halo * 0.5 + 7 / globalScale, node.y);
+
+        /* A title sitting to the right of a node near the right edge runs off
+           the canvas, so it flips to the node's other side. The transform gives
+           where this node actually is on screen; its horizontal scale over the
+           zoom is the device pixel ratio. */
+        const tf = ctx.getTransform();
+        const dpr = tf.a / globalScale || 1;
+        const screenX = tf.a * node.x + tf.e;
+        const flip = screenX > ctx.canvas.width - 240 * dpr;
+
+        ctx.textAlign = flip ? 'right' : 'left';
+        const offset = halo * 0.5 + px(7);
+        ctx.fillText(text, flip ? node.x - offset : node.x + offset, node.y);
       }
     },
     [dim, highlightIds, hoverId, labelIds, maxDegree, selectedId]
   );
 
+  /* The clickable disc has to follow the drawn one, so it is sized the same
+     way — in screen pixels, with a comfortable margin for the mouse. */
   const pointerArea = useCallback(
-    (node, color, ctx) => {
+    (node, color, ctx, globalScale = 1) => {
+      const t = (node.degree ?? 0) / maxDegree;
       ctx.fillStyle = color;
       ctx.beginPath();
-      ctx.arc(node.x, node.y, Math.max(radius(node) + 5, 8), 0, Math.PI * 2);
+      ctx.arc(node.x, node.y, (corePx(t) + 8) / globalScale, 0, Math.PI * 2);
       ctx.fill();
     },
-    [radius]
+    [maxDegree]
   );
 
   const linkStyle = useCallback(
@@ -199,13 +236,20 @@ const Constellation = forwardRef(function Constellation(
       positions.push({ id: n.id, x: +n.x.toFixed(2), y: +n.y.toFixed(2) });
     }
     if (!positions.length) return;
+    setSettledAt(Date.now()); // now that nodes have places, choose the titles
     onLayoutSettled?.(positions);
+
+    // A node asked for by URL can only be brought into view once it has one.
+    const focused = selectedId != null && graph.nodes.find((n) => n.id === selectedId);
+    if (focused && Number.isFinite(focused.x)) {
+      fgRef.current?.centerAt(focused.x, focused.y, 600);
+    }
     try {
       localStorage.setItem(VERSION_KEY, String(LAYOUT_VERSION));
     } catch {
       /* storage blocked — the sky re-simulates next visit, which is only a cost */
     }
-  }, [graph, onLayoutSettled]);
+  }, [graph, onLayoutSettled, selectedId]);
 
   useEffect(() => {
     const fg = fgRef.current;
@@ -218,7 +262,7 @@ const Constellation = forwardRef(function Constellation(
     fg.d3Force('link')
       ?.distance((l) => 160 - (l.strength ?? 0.5) * 55)
       .strength(0.35);
-    fg.d3Force('collide', forceCollide((node) => nodeHalo((node.degree ?? 0) / maxDegree) + 14).strength(0.9));
+    fg.d3Force('collide', forceCollide(COLLIDE_RADIUS).strength(0.9));
 
     const fit = setTimeout(() => {
       fg.zoomToFit(600, 110);
@@ -243,7 +287,12 @@ const Constellation = forwardRef(function Constellation(
     },
     centerOn: (id) => {
       const node = graph.nodes.find((n) => n.id === id);
-      if (node) fgRef.current?.centerAt(node.x, node.y, 500);
+      // Arriving on /sky?focus=… asks for this before the simulation has placed
+      // anything; centring on an undefined point pans the view off the map and
+      // leaves an empty sky. The settle handler centres it once it has a place.
+      if (node && Number.isFinite(node.x) && Number.isFinite(node.y)) {
+        fgRef.current?.centerAt(node.x, node.y, 500);
+      }
     }
   }));
 

@@ -1,0 +1,146 @@
+import { all, one, query } from './db.js';
+import { ExtractError, extractFromText, extractFromUrl, normaliseUrl, siteOf } from './extract.js';
+import { embed, ReaderError, summarise } from './gemini.js';
+import { vocabulary } from './graph.js';
+
+/** Stages that mean the pipeline still holds this row. */
+const IN_FLIGHT = ['queued', 'fetching', 'reading', 'connecting'];
+
+/** A run that hasn't moved in this long was cut off mid-flight. */
+const STALE_AFTER_MINUTES = 5;
+
+/**
+ * Creating an article is deliberately separate from running it.
+ *
+ * On a serverless platform anything still executing when the response is sent
+ * gets killed, so the old shape — respond 202, keep reading in the background —
+ * silently loses the article. Instead the row is created here and the work
+ * happens inside its own request, which the client fires and lets run while it
+ * polls the row for the stage it's reached.
+ */
+export async function createArticle({ userId, url: rawUrl, text }) {
+  const url = rawUrl ? normaliseUrl(rawUrl) : null;
+  if (!url && !text) throw new ExtractError('Paste a link, or the article text.');
+
+  return one(
+    `INSERT INTO articles (user_id, url, site, title, status, source_text)
+     VALUES ($1, $2, $3, $4, 'queued', $5) RETURNING *`,
+    [userId, url?.href ?? null, url ? siteOf(url) : 'pasted text', url?.hostname ?? 'Reading…', text ?? null]
+  );
+}
+
+/**
+ * Fetch → distil → connect, inside one request.
+ *
+ * Only one at a time per user. The tags are only worth anything if they're
+ * shared — two pieces on the same subject have to land under the same word —
+ * and that works by handing the reader the tags already in use. Run four at
+ * once and each sees an empty vocabulary and invents its own words: two
+ * machine-learning pieces come back with no tag in common and no cluster
+ * forms. So a second run is turned away and told to come back.
+ */
+export async function runArticle({ userId, id }) {
+  const article = await one('SELECT * FROM articles WHERE id = $1 AND user_id = $2', [id, userId]);
+  if (!article) return { state: 'missing' };
+  if (!IN_FLIGHT.includes(article.status)) return { state: 'done', article };
+
+  await releaseStaleRuns(userId);
+
+  const busy = await one(
+    `SELECT id FROM articles
+      WHERE user_id = $1 AND id <> $2 AND status = ANY($3::text[])
+        AND started_at IS NOT NULL`,
+    [userId, id, IN_FLIGHT]
+  );
+  if (busy) return { state: 'busy' };
+
+  // Claim it: started_at is what marks a row as actually running, so a second
+  // request for the same article doesn't read it twice.
+  const claimed = await one(
+    `UPDATE articles SET status = 'fetching', started_at = now()
+      WHERE id = $1 AND user_id = $2 AND started_at IS NULL AND status = 'queued'
+      RETURNING id`,
+    [id, userId]
+  );
+  if (!claimed) return { state: 'busy' };
+
+  try {
+    await pipeline(article, userId);
+  } catch (err) {
+    await fail(id, err);
+  }
+
+  return { state: 'done', article: await one('SELECT * FROM articles WHERE id = $1', [id]) };
+}
+
+async function pipeline(article, userId) {
+  const { id, url: href, source_text: pastedText } = article;
+  const url = href ? new URL(href) : null;
+
+  // 1 — fetch: the page, not the ads.
+  const { title, text } = pastedText ? extractFromText(pastedText, url) : await extractFromUrl(url);
+  await query('UPDATE articles SET title = $1, status = $2 WHERE id = $3', [title, 'reading', id]);
+
+  // 2 — distil: a hundred words, and tags chosen to be shared.
+  const others = await all(
+    `SELECT tags FROM articles WHERE user_id = $1 AND status = 'ready' AND id <> $2`,
+    [userId, id]
+  );
+  const vocab = vocabulary(others).map(([tag]) => tag);
+  const { title: finalTitle, summary, tags } = await summarise({
+    title,
+    text,
+    vocabulary: vocab,
+    titleIsReliable: !pastedText // pasted text has no headline of its own
+  });
+
+  await query('UPDATE articles SET title = $1, summary = $2, tags = $3, status = $4 WHERE id = $5', [
+    finalTitle,
+    summary,
+    JSON.stringify(tags),
+    'connecting',
+    id
+  ]);
+
+  // 3 — connect: place it by meaning.
+  const vector = await embed(`${finalTitle}\n\n${summary}\n\n${tags.join(', ')}\n\n${text.slice(0, 8000)}`);
+  await query(
+    `UPDATE articles SET embedding = $1, status = 'ready', error = NULL, error_kind = NULL,
+            source_text = NULL
+      WHERE id = $2`,
+    [JSON.stringify(vector), id]
+  );
+}
+
+async function fail(id, err) {
+  // The page and the reader fail for different reasons and deserve different
+  // words — telling someone we couldn't read their article when the model name
+  // was retired sends them off debugging the wrong thing.
+  const isReader = err instanceof ReaderError;
+  const known = err instanceof ExtractError || isReader;
+  const message = known ? err.message : "We couldn't read that page.";
+  await query("UPDATE articles SET status = 'failed', error = $1, error_kind = $2 WHERE id = $3", [
+    message,
+    isReader ? 'reader' : 'page',
+    id
+  ]);
+  if (!(err instanceof ExtractError)) console.error(`[ingest ${id}]`, err);
+}
+
+/**
+ * A run cut off partway — the browser went away, or the function hit its
+ * ceiling — leaves a row claimed forever, which would block every later
+ * article for that user. Anything that hasn't moved in a while is let go.
+ */
+export async function releaseStaleRuns(userId) {
+  const { rowCount } = await query(
+    `UPDATE articles
+        SET status = 'failed',
+            error = 'That one stopped partway. Try it again.',
+            error_kind = 'page'
+      WHERE user_id = $1 AND status = ANY($2::text[]) AND started_at IS NOT NULL
+        AND started_at < now() - ($3 || ' minutes')::interval`,
+    [userId, IN_FLIGHT, String(STALE_AFTER_MINUTES)]
+  );
+  return rowCount;
+}

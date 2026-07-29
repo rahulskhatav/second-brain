@@ -1,0 +1,15 @@
+# Secrets — the Gemini key and the database password live here
+.env
+.env.local
+**/.env
+
+node_modules/
+dist/
+.vercel/
+
+# Leftovers from the pre-Postgres build
+app/server/data/
+
+npm-debug.log*
+.DS_Store
+Thumbs.db

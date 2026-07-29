@@ -1,0 +1,247 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import ArticlePanel from '../components/ArticlePanel.jsx';
+import Constellation from '../components/Constellation.jsx';
+import Dust from '../components/Dust.jsx';
+import { CrosshairIcon, MinusIcon, PlusIcon, SearchIcon } from '../components/Icons.jsx';
+import Mark from '../components/Mark.jsx';
+import { api } from '../lib/api.js';
+import { useAuth } from '../lib/auth.jsx';
+
+const day = (iso) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+
+export default function Sky() {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
+
+  const [graph, setGraph] = useState({ nodes: [], links: [], clusters: [] });
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState(params.get('q') ?? '');
+  const [results, setResults] = useState([]);
+  const [selectedId, setSelectedId] = useState(params.get('focus') ? Number(params.get('focus')) : null);
+  const skyRef = useRef(null);
+
+  const load = useCallback(
+    () =>
+      api
+        .graph()
+        .then(setGraph)
+        .catch(() => {})
+        .finally(() => setLoading(false)),
+    []
+  );
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  /* Search runs against the summaries and tags; the sky stays put behind it. */
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) {
+      setResults([]);
+      return undefined;
+    }
+    const controller = new AbortController();
+    const t = setTimeout(() => {
+      api
+        .search(q, controller.signal)
+        .then((d) => setResults(d.results))
+        .catch(() => {});
+    }, 160);
+    return () => {
+      clearTimeout(t);
+      controller.abort();
+    };
+  }, [query]);
+
+  const searching = query.trim().length >= 2;
+  const highlightIds = useMemo(
+    () => (searching ? new Set(results.map((r) => r.id)) : null),
+    [searching, results]
+  );
+
+  const saveLayout = useCallback((positions) => {
+    api.saveLayout(positions).catch(() => {});
+  }, []);
+
+  const select = useCallback(
+    (id) => {
+      setSelectedId(id);
+      setParams(id ? { focus: String(id) } : {}, { replace: true });
+      if (id) skyRef.current?.centerOn(id);
+    },
+    [setParams]
+  );
+
+  const openFromSearch = (id) => {
+    setQuery('');
+    select(id);
+  };
+
+  const signOut = async () => {
+    await logout();
+    navigate('/', { replace: true });
+  };
+
+  const isEmpty = !loading && graph.nodes.length === 0;
+  const linkCount = graph.links.length;
+
+  return (
+    <div className="sky">
+      {isEmpty ? (
+        <>
+          <Dust />
+          <div className="empty">
+            <div className="empty-orbit">
+              <div className="ring" />
+              <div className="ring-in" />
+              <div className="core" />
+            </div>
+            <h1>One star so far</h1>
+            <p>
+              Your sky starts empty and that's fine. Add the last thing you read and come back tomorrow —
+              connections need two.
+            </p>
+            <Link className="btn btn-primary" style={{ marginTop: 22, minHeight: 42, paddingInline: 22 }} to="/home">
+              Add your first link
+            </Link>
+          </div>
+        </>
+      ) : (
+        <Constellation
+          ref={skyRef}
+          data={graph}
+          dim={searching}
+          showLabels={!searching}
+          selectedId={selectedId}
+          highlightIds={highlightIds}
+          onSelect={select}
+          onLayoutSettled={saveLayout}
+        />
+      )}
+
+      {searching && <div className="sky-veil" />}
+
+      <div className="sky-tl">
+        <div className="glass sky-brand">
+          <Mark to="/home" size={12} glow={10} />
+        </div>
+        {!isEmpty && (
+          <div className={`glass sky-search${searching ? ' is-active' : ''}`}>
+            <SearchIcon color={searching ? '#9184d9' : 'rgba(233,233,237,.45)'} />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Look for something…"
+              aria-label="Search your sky"
+              onKeyDown={(e) => e.key === 'Escape' && setQuery('')}
+            />
+            {searching && <span className="found">{results.length} found</span>}
+          </div>
+        )}
+      </div>
+
+      <div className="sky-tr">
+        <Link className="btn btn-primary sky-add" to="/home">
+          <PlusIcon />
+          Add a link
+        </Link>
+        <button className="sky-avatar" onClick={signOut} title={`Signed in as ${user?.username} — log out`}>
+          {(user?.username ?? '?').slice(0, 1)}
+        </button>
+      </div>
+
+      {!isEmpty && (
+        <>
+          <div className="sky-bl">
+            <div className="glass zoom-group">
+              <button onClick={() => skyRef.current?.zoomIn()} aria-label="Zoom in">
+                <PlusIcon size={15} />
+              </button>
+              <div className="sep" />
+              <button onClick={() => skyRef.current?.zoomOut()} aria-label="Zoom out">
+                <MinusIcon size={15} />
+              </button>
+              <div className="sep" />
+              <button onClick={() => skyRef.current?.fit()} aria-label="Fit the whole sky">
+                <CrosshairIcon />
+              </button>
+            </div>
+            <div className="glass sky-count">
+              <span>
+                {graph.nodes.length} article{graph.nodes.length === 1 ? '' : 's'}
+              </span>
+              <span style={{ opacity: 0.4 }}>·</span>
+              <span>
+                {linkCount} connection{linkCount === 1 ? '' : 's'}
+              </span>
+            </div>
+          </div>
+
+          {graph.clusters.length > 0 && (
+            <div className="sky-br glass legend">
+              <div className="kicker-quiet">Clusters</div>
+              {graph.clusters.map((c) => (
+                <button key={c.name} onClick={() => setQuery(c.name)} title={`${c.count} articles`}>
+                  <span className="swatch" style={{ background: c.color }} />
+                  {c.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {searching && (
+        <div className="results-wrap">
+          <div className="results">
+            <div className="kicker-quiet">
+              {results.length === 0
+                ? 'Nothing you’ve read matches that'
+                : `${results.length} thing${results.length === 1 ? '' : 's'} you've read about this`}
+            </div>
+            {results.map((r, i) => (
+              <div key={r.id}>
+                {i > 0 && <hr className="fade-rule" />}
+                <button className={`result${i === 0 ? ' is-top' : ''}`} onClick={() => openFromSearch(r.id)}>
+                  <div className="line">
+                    <h3>{r.title}</h3>
+                    <span className="when">{day(r.addedAt)}</span>
+                  </div>
+                  <p>{r.summary}</p>
+                  <div className="tags">
+                    {r.tags.slice(0, 2).map((t, ti) => (
+                      <span key={t} className={`tag ${ti === 0 && i === 0 ? 'tag-accent' : 'tag-neutral'}`}>
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                </button>
+              </div>
+            ))}
+            <div className="results-foot">Clear the field to put the sky back — nothing moves.</div>
+          </div>
+        </div>
+      )}
+
+      {selectedId && !searching && (
+        <ArticlePanel
+          id={selectedId}
+          onClose={() => select(null)}
+          onSelect={select}
+          onForget={(id) => {
+            select(null);
+            setGraph((g) => ({
+              ...g,
+              nodes: g.nodes.filter((n) => n.id !== id),
+              links: g.links.filter((l) => l.source !== id && l.target !== id)
+            }));
+            load();
+          }}
+        />
+      )}
+    </div>
+  );
+}

@@ -8,6 +8,7 @@ import { CrosshairIcon, HistoryIcon, MinusIcon, PlusIcon, SearchIcon } from '../
 import Mark from '../components/Mark.jsx';
 import ProfileMenu from '../components/ProfileMenu.jsx';
 import Timeline from '../components/Timeline.jsx';
+import { track } from '../lib/analytics.js';
 import { api } from '../lib/api.js';
 import { useIngest } from '../lib/useIngest.js';
 
@@ -53,7 +54,11 @@ export default function Sky() {
     const t = setTimeout(() => {
       api
         .search(q, controller.signal)
-        .then((d) => setResults(d.results))
+        .then((d) => {
+          setResults(d.results);
+          // How long it was and whether it found anything — never the words.
+          track('search_run', { length: q.length, results: d.results.length });
+        })
         .catch(() => {});
     }, 160);
     return () => {
@@ -76,7 +81,10 @@ export default function Sky() {
     (id) => {
       setSelectedId(id);
       setParams(id ? { focus: String(id) } : {}, { replace: true });
-      if (id) skyRef.current?.centerOn(id);
+      if (id) {
+        skyRef.current?.centerOn(id);
+        track('article_opened'); // that one was opened, not which one
+      }
     },
     [setParams]
   );
@@ -205,7 +213,12 @@ export default function Sky() {
               <div className="sep" />
               <button
                 className={showTimeline ? 'is-on' : ''}
-                onClick={() => setShowTimeline((v) => !v)}
+                onClick={() =>
+                  setShowTimeline((v) => {
+                    if (!v) track('timeline_opened', { articles: articles.length });
+                    return !v;
+                  })
+                }
                 aria-label="Everything you've read, in order"
                 aria-pressed={showTimeline}
                 title="Everything you've read, in order"

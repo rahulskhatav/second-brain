@@ -1,4 +1,6 @@
+import { useEffect } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { trackPageview } from './lib/analytics.js';
 import Home from './pages/Home.jsx';
 import Landing from './pages/Landing.jsx';
 import Login from './pages/Login.jsx';
@@ -31,7 +33,25 @@ const Waiting = () => (
   </div>
 );
 
+/** Routing happens in the browser, so pageviews have to be sent by hand. */
+function PageviewTracker() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    trackPageview(pathname); // the path only — never the ?focus= or ?q= on it
+  }, [pathname]);
+  return null;
+}
+
 export default function App() {
+  return (
+    <>
+      <PageviewTracker />
+      <AppRoutes />
+    </>
+  );
+}
+
+function AppRoutes() {
   return (
     <Routes>
       <Route path="/" element={<Landing />} />

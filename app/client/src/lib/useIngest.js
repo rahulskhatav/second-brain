@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { track } from './analytics.js';
 import { api } from './api.js';
 
 /** The three stages the UI names, and how far along the bar each one sits. */
@@ -22,6 +23,7 @@ export function useIngest({ onReady } = {}) {
   const [active, setActive] = useState(null);
   const [failure, setFailure] = useState(null);
   const pollRef = useRef(null);
+  const startedRef = useRef(0);
   const readyRef = useRef(onReady);
   readyRef.current = onReady;
 
@@ -31,8 +33,16 @@ export function useIngest({ onReady } = {}) {
       try {
         const { article } = await api.article(active.id);
         setActive(article);
-        if (article.status === 'failed') setFailure(article);
-        if (article.status === 'ready') readyRef.current?.(article);
+        if (article.status === 'failed') {
+          setFailure(article);
+          // The kind, never the article: 'page' means it wouldn't open,
+          // 'reader' means Gemini did not answer.
+          track('article_failed', { kind: article.errorKind ?? 'unknown' });
+        }
+        if (article.status === 'ready') {
+          track('article_ready', { seconds: Math.round((Date.now() - startedRef.current) / 1000) });
+          readyRef.current?.(article);
+        }
       } catch {
         setFailure({ error: 'We lost track of that one. Try it again.' });
         setActive(null);
@@ -56,6 +66,8 @@ export function useIngest({ onReady } = {}) {
   const submit = useCallback(
     async (payload) => {
       setFailure(null);
+      startedRef.current = Date.now();
+      track('article_submitted', { source: payload.text ? 'pasted text' : 'link' });
       try {
         const { article } = await api.addArticle(payload);
         setActive(article);

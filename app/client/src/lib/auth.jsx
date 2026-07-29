@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { forgetPerson, identify, track } from './analytics.js';
 import { api } from './api.js';
 
 const AuthContext = createContext(null);
@@ -10,7 +11,10 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     api
       .me()
-      .then((d) => setUser(d.user))
+      .then((d) => {
+        setUser(d.user);
+        identify(d.user); // an existing session is still this person
+      })
       .catch(() => setUser(null))
       .finally(() => setReady(true));
   }, []);
@@ -19,11 +23,23 @@ export function AuthProvider({ children }) {
     () => ({
       user,
       ready,
-      register: async (u, p) => setUser((await api.register(u, p)).user),
-      login: async (u, p) => setUser((await api.login(u, p)).user),
+      register: async (u, p) => {
+        const { user: created } = await api.register(u, p);
+        setUser(created);
+        identify(created);
+        track('signed_up');
+      },
+      login: async (u, p) => {
+        const { user: signedIn } = await api.login(u, p);
+        setUser(signedIn);
+        identify(signedIn);
+        track('signed_in');
+      },
       logout: async () => {
+        track('signed_out');
         await api.logout();
         setUser(null);
+        forgetPerson();
       }
     }),
     [user, ready]

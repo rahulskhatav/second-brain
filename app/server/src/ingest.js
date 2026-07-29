@@ -1,3 +1,4 @@
+import { record } from './analytics.js';
 import { all, one, query } from './db.js';
 import { ExtractError, extractFromText, extractFromUrl, normaliseUrl, siteOf } from './extract.js';
 import { embed, ReaderError, summarise } from './gemini.js';
@@ -64,10 +65,22 @@ export async function runArticle({ userId, id }) {
   );
   if (!claimed) return { state: 'busy' };
 
+  const startedAt = Date.now();
   try {
     await pipeline(article, userId);
+    await record(userId, 'article_read', {
+      seconds: Math.round((Date.now() - startedAt) / 1000),
+      source: article.source_text ? 'pasted text' : 'link',
+      // The site, not the article: enough to see what people read, not what.
+      site: article.url ? new URL(article.url).hostname.replace(/^www\./, '') : null
+    });
   } catch (err) {
     await fail(id, err);
+    await record(userId, 'article_failed', {
+      seconds: Math.round((Date.now() - startedAt) / 1000),
+      kind: err instanceof ReaderError ? 'reader' : 'page',
+      reason: err instanceof ReaderError || err instanceof ExtractError ? err.message : 'unknown'
+    });
   }
 
   return { state: 'done', article: await one('SELECT * FROM articles WHERE id = $1', [id]) };

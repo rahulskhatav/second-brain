@@ -12,8 +12,11 @@ import pg from 'pg';
  * once, and a large pool in each is how you exhaust a database's connection
  * limit. Use the *pooled* connection string.
  */
-const connectionString =
-  process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.POSTGRES_PRISMA_URL;
+const SOURCES = ['DATABASE_URL', 'POSTGRES_URL', 'POSTGRES_PRISMA_URL'];
+
+/** Which variable supplied the connection — the name only, never the value. */
+export const connectionSource = SOURCES.find((name) => process.env[name]?.trim()) ?? null;
+const connectionString = connectionSource ? process.env[connectionSource] : null;
 
 if (!connectionString) {
   throw new Error(
@@ -91,6 +94,29 @@ export async function one(text, params = []) {
 export async function all(text, params = []) {
   const { rows } = await query(text, params);
   return rows;
+}
+
+/**
+ * Can this connection actually write?
+ *
+ * Reads succeeding while writes fail is what a replica or a read-only endpoint
+ * looks like from the application's side, and it is invisible in a connection
+ * string. Both checks are themselves reads, so they are safe to run anywhere.
+ */
+export async function connectionHealth() {
+  try {
+    const { rows } = await query(
+      "SELECT pg_is_in_recovery() AS replica, current_setting('transaction_read_only') AS read_only, current_database() AS db"
+    );
+    return {
+      source: connectionSource,
+      database: rows[0]?.db ?? null,
+      replica: rows[0]?.replica === true,
+      readOnly: rows[0]?.read_only === 'on'
+    };
+  } catch (err) {
+    return { source: connectionSource, error: err?.code ?? 'unreachable' };
+  }
 }
 
 export const now = () => new Date().toISOString();

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { all, one, query } from './db.js';
+import { all, connectionHealth, one, query } from './db.js';
 import { ExtractError } from './extract.js';
 import { hasGemini } from './gemini.js';
 import { createArticle, releaseStaleRuns, runArticle } from './ingest.js';
@@ -23,8 +23,12 @@ const publicArticle = (r) => ({
   addedAt: r.added_at
 });
 
-api.get('/status', (_req, res) => {
-  res.json({ reader: hasGemini() ? 'gemini' : 'fallback' });
+api.get('/status', async (_req, res, next) => {
+  try {
+    res.json({ reader: hasGemini() ? 'gemini' : 'fallback', db: await connectionHealth() });
+  } catch (err) {
+    next(err);
+  }
 });
 
 /* ── articles ─────────────────────────────────────────────────────────────── */

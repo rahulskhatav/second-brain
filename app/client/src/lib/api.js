@@ -21,8 +21,27 @@ async function request(path, { method = 'GET', body, signal } = {}) {
     throw new ApiError("Can't reach the server.");
   }
 
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(data.error ?? 'Something went wrong.', { status: res.status, field: data.field });
+  /* Read as text first. A non-JSON body is itself the diagnosis: it means
+     something other than the API answered — a static 404 page, a platform error
+     page — and reporting "Something went wrong" for that hides the one fact
+     worth knowing. */
+  const raw = await res.text();
+  let data = {};
+  try {
+    data = raw ? JSON.parse(raw) : {};
+  } catch {
+    data = {};
+  }
+
+  if (!res.ok) {
+    const served = !raw.trim().startsWith('{');
+    const message =
+      data.error ??
+      (served
+        ? `The API didn't answer (${res.status}) — the /api routes aren't reaching the server.`
+        : `Something went wrong (${res.status}).`);
+    throw new ApiError(message, { status: res.status, field: data.field });
+  }
   return data;
 }
 

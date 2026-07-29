@@ -143,7 +143,7 @@ export default function Home() {
                 />
               </div>
               <button className="btn btn-primary" style={{ minHeight: 48, paddingInline: 22 }} type="submit">
-                Remember it
+                Brain it
               </button>
             </form>
             <div className="home-note">
@@ -179,7 +179,7 @@ export default function Home() {
             />
             <div style={{ display: 'flex', gap: 10 }}>
               <button className="btn btn-primary" type="submit">
-                Remember it
+                Brain it
               </button>
               <button className="btn btn-ghost" type="button" onClick={() => setPasting(false)}>
                 Never mind

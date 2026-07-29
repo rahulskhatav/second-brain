@@ -41,6 +41,10 @@ app.use((err, _req, res, _next) => {
   console.error(err);
   const missingDb = /DATABASE_URL|POSTGRES_URL/.test(String(err?.message));
   res.status(500).json({
-    error: missingDb ? 'The database is not configured.' : 'Something went wrong on our side.'
+    error: missingDb ? 'The database is not configured.' : 'Something went wrong on our side.',
+    // Postgres' own five-character code, which says what went wrong without
+    // saying anything about the data. Diagnosing a failure that only happens on
+    // the deployment is otherwise guesswork against logs you may not have open.
+    code: err?.code ?? undefined
   });
 });

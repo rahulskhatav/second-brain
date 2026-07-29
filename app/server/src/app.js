@@ -45,6 +45,10 @@ app.use((err, _req, res, _next) => {
     // Postgres' own five-character code, which says what went wrong without
     // saying anything about the data. Diagnosing a failure that only happens on
     // the deployment is otherwise guesswork against logs you may not have open.
-    code: err?.code ?? undefined
+    code: err?.code ?? undefined,
+    // TEMPORARY, while a failure that only reproduces on the deployment is
+    // being chased. Remove before this is in front of anyone: an error message
+    // can name internals, and this deployment is public.
+    detail: String(err?.message ?? '').slice(0, 300) || undefined
   });
 });

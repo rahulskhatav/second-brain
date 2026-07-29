@@ -828,16 +828,24 @@ textarea {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  min-width: 148px;
+  font-size: 12.5px;
   background: none;
   border: 0;
   padding: 0;
-  color: var(--color-text);
+  color: rgba(233, 233, 237, 0.88);
   cursor: pointer;
   text-align: left;
 }
-.legend button:hover {
+.legend button:hover .name {
   color: var(--color-accent-300);
+}
+.legend .name {
+  flex: 1;
+}
+.legend .count {
+  font: 400 11px/1 ui-monospace, Menlo, monospace;
+  color: rgba(233, 233, 237, 0.4);
 }
 .legend .swatch {
   width: 7px;

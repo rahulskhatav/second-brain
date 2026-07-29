@@ -45,6 +45,100 @@ const corePx = (t) => 3.2 + t * 5;
 const haloPx = (t) => 11 + t * 18;
 
 /**
+ * Stars grow when the sky is empty and shrink as it fills.
+ *
+ * Three articles at the size that suits three hundred are specks in a void;
+ * three hundred at the size that suits three is a wall. Sized against a
+ * reference sky of 48 — the dataset the design was drawn from — so that looks
+ * exactly as designed, with a gentle curve either side and firm limits.
+ */
+const REFERENCE_SKY = 48;
+const sizeScale = (count) => {
+  if (count < 1) return 1;
+  return Math.min(2, Math.max(0.8, (REFERENCE_SKY / count) ** 0.28));
+};
+
+/**
+ * The outline of a set of points, for the shape drawn around a cluster.
+ *
+ * A circle through the outermost member is enormous when two articles sit far
+ * apart — it swallows the whole map and runs off the screen. A hull hugs what
+ * is actually there: a capsule around a pair, a rounded polygon around a group.
+ * Monotone chain; collinear points dropped.
+ */
+function convexHull(points) {
+  if (points.length < 3) return [...points];
+  const pts = [...points].sort((a, b) => a.x - b.x || a.y - b.y);
+  const cross = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+
+  const half = (source) => {
+    const out = [];
+    for (const p of source) {
+      while (out.length >= 2 && cross(out[out.length - 2], out[out.length - 1], p) <= 0) out.pop();
+      out.push(p);
+    }
+    out.pop();
+    return out;
+  };
+
+  return [...half(pts), ...half([...pts].reverse())];
+}
+
+/**
+ * Traces a hull grown outward by `pad`, with rounded corners, as one closed
+ * path — so it can be filled and outlined once each. Stroking a thick pen along
+ * the hull instead would work only for opaque paint: at these alphas the pen
+ * stroke and the fill compound where they overlap, and the shape reads as a
+ * pipe running around an empty middle rather than as a region.
+ */
+function tracePaddedHull(ctx, hull, pad) {
+  const n = hull.length;
+  ctx.beginPath();
+
+  if (n === 1) {
+    ctx.arc(hull[0].x, hull[0].y, pad, 0, Math.PI * 2);
+    return;
+  }
+  if (n === 2) {
+    const [a, b] = hull;
+    const ang = Math.atan2(b.y - a.y, b.x - a.x);
+    ctx.arc(a.x, a.y, pad, ang + Math.PI / 2, ang - Math.PI / 2);
+    ctx.arc(b.x, b.y, pad, ang - Math.PI / 2, ang + Math.PI / 2);
+    ctx.closePath();
+    return;
+  }
+
+  // One winding, so "outward" means one thing all the way round.
+  let area = 0;
+  for (let i = 0; i < n; i++) {
+    const a = hull[i];
+    const b = hull[(i + 1) % n];
+    area += a.x * b.y - b.x * a.y;
+  }
+  const pts = area < 0 ? [...hull].reverse() : hull;
+
+  const normals = pts.map((a, i) => {
+    const b = pts[(i + 1) % n];
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = (dy / len) * pad;
+    const ny = (-dx / len) * pad;
+    return { nx, ny, ang: Math.atan2(ny, nx) };
+  });
+
+  for (let i = 0; i < n; i++) {
+    const a = pts[i];
+    const b = pts[(i + 1) % n];
+    const before = normals[(i - 1 + n) % n];
+    const now = normals[i];
+    ctx.arc(a.x, a.y, pad, before.ang, now.ang); // rounds this corner
+    ctx.lineTo(b.x + now.nx, b.y + now.ny);
+  }
+  ctx.closePath();
+}
+
+/**
  * The live sky: the user's own articles, placed by meaning.
  *
  * Positions are simulated once and then pinned — a node that has settled keeps
@@ -90,6 +184,7 @@ const Constellation = forwardRef(function Constellation(
   }, [data, honourStored]);
 
   const maxDegree = useMemo(() => Math.max(1, ...graph.nodes.map((n) => n.degree ?? 0)), [graph]);
+  const scale = useMemo(() => sizeScale(graph.nodes.length), [graph]);
 
   const clusterOf = useMemo(() => new Map(graph.nodes.map((n) => [n.id, n.cluster])), [graph]);
 
@@ -117,13 +212,89 @@ const Constellation = forwardRef(function Constellation(
     return new Set(placed.map((n) => n.id));
   }, [graph, showLabels, dim, settledAt]);
 
+  /**
+   * The fields the clusters occupy, drawn under everything else.
+   *
+   * One translucent circle enclosing each cluster's members, named above it.
+   * They overlap where subjects do, which is the point — an article on the edge
+   * of two clusters sits in the lens between them.
+   */
+  const paintClusters = useCallback(
+    (ctx, globalScale) => {
+      const px = (n) => n / globalScale;
+
+      const groups = new Map();
+      for (const n of graph.nodes) {
+        if (!(n.cluster >= 0) || !Number.isFinite(n.x) || !Number.isFinite(n.y)) continue;
+        if (!groups.has(n.cluster)) groups.set(n.cluster, []);
+        groups.get(n.cluster).push(n);
+      }
+
+      const headings = [];
+
+      const pad = px(38);
+      const fill = (color) => alpha(color, dim ? '08' : '15');
+
+      for (const members of groups.values()) {
+        if (members.length < 2) continue;
+        const hull = convexHull(members.map((n) => ({ x: n.x, y: n.y })));
+        const { color, clusterName } = members[0];
+
+        tracePaddedHull(ctx, hull, pad);
+        ctx.fillStyle = fill(color);
+        ctx.fill();
+        ctx.strokeStyle = alpha(color, dim ? '18' : '40');
+        ctx.lineWidth = px(1);
+        ctx.stroke();
+
+        // Inside the top of its own shape — outside, it clips off the top of the
+        // viewport — where the padding guarantees no node is sitting.
+        if (clusterName && !dim) {
+          const top = Math.min(...hull.map((p) => p.y)) - pad;
+          const cx = hull.reduce((s, p) => s + p.x, 0) / hull.length;
+          headings.push({ text: clusterName.toUpperCase(), cx, y: top + px(17), color });
+        }
+      }
+
+      if (!headings.length) return;
+
+      ctx.font = `500 ${px(10.5)}px ${LABEL_FONT}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const had = ctx.letterSpacing;
+      try {
+        ctx.letterSpacing = `${px(1.4)}px`; // tracked out, like the kickers elsewhere
+      } catch {
+        /* older engines ignore letter spacing on canvas */
+      }
+
+      // Near-concentric clusters would print their names on top of each other.
+      const placed = [];
+      for (const h of headings.sort((a, b) => a.y - b.y)) {
+        while (placed.some((p) => Math.abs(p.y - h.y) < px(15) && Math.abs(p.cx - h.cx) < px(150))) {
+          h.y += px(16);
+        }
+        placed.push(h);
+        ctx.fillStyle = alpha(h.color, 'cc');
+        ctx.fillText(h.text, h.cx, h.y);
+      }
+
+      try {
+        ctx.letterSpacing = had ?? '0px';
+      } catch {
+        /* nothing to restore */
+      }
+    },
+    [graph, dim]
+  );
+
   const paintNode = useCallback(
     (node, ctx, globalScale) => {
       const t = (node.degree ?? 0) / maxDegree;
       // Screen pixels converted to graph units for this frame's zoom.
       const px = (n) => n / globalScale;
-      const r = px(corePx(t));
-      const halo = px(haloPx(t));
+      const r = px(corePx(t) * scale);
+      const halo = px(haloPx(t) * scale);
 
       const lit = highlightIds ? highlightIds.has(node.id) : !dim;
       const isSelected = node.id === selectedId;
@@ -193,7 +364,7 @@ const Constellation = forwardRef(function Constellation(
         ctx.fillText(text, flip ? node.x - offset : node.x + offset, node.y);
       }
     },
-    [dim, highlightIds, hoverId, labelIds, maxDegree, selectedId]
+    [dim, highlightIds, hoverId, labelIds, maxDegree, scale, selectedId]
   );
 
   /* The clickable disc has to follow the drawn one, so it is sized the same
@@ -203,10 +374,10 @@ const Constellation = forwardRef(function Constellation(
       const t = (node.degree ?? 0) / maxDegree;
       ctx.fillStyle = color;
       ctx.beginPath();
-      ctx.arc(node.x, node.y, (corePx(t) + 8) / globalScale, 0, Math.PI * 2);
+      ctx.arc(node.x, node.y, (corePx(t) * scale + 8) / globalScale, 0, Math.PI * 2);
       ctx.fill();
     },
-    [maxDegree]
+    [maxDegree, scale]
   );
 
   const linkStyle = useCallback(
@@ -265,7 +436,7 @@ const Constellation = forwardRef(function Constellation(
     fg.d3Force('collide', forceCollide(COLLIDE_RADIUS).strength(0.9));
 
     const fit = setTimeout(() => {
-      fg.zoomToFit(600, 110);
+      fg.zoomToFit(600, 175); // room for the cluster rings and their names
       // zoomToFit animates, so the cap is applied once it has landed.
       setTimeout(() => {
         if (fg.zoom() > MAX_FIT_ZOOM) fg.zoom(MAX_FIT_ZOOM, 350);
@@ -280,7 +451,7 @@ const Constellation = forwardRef(function Constellation(
     fit: () => {
       const fg = fgRef.current;
       if (!fg) return;
-      fg.zoomToFit(500, 110);
+      fg.zoomToFit(500, 175);
       setTimeout(() => {
         if (fg.zoom() > MAX_FIT_ZOOM) fg.zoom(MAX_FIT_ZOOM, 300);
       }, 550);
@@ -342,6 +513,7 @@ const Constellation = forwardRef(function Constellation(
           nodePointerAreaPaint={pointerArea}
           linkColor={(l) => linkStyle(l).color}
           linkWidth={(l) => linkStyle(l).width}
+          onRenderFramePre={paintClusters}
           linkCurvature={0}
           enableNodeDrag={false}
           warmupTicks={40}

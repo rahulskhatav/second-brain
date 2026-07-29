@@ -210,9 +210,10 @@ export default function Sky() {
             <div className="sky-br glass legend">
               <div className="kicker-quiet">Clusters</div>
               {graph.clusters.map((c) => (
-                <button key={c.name} onClick={() => setQuery(c.name)} title={`${c.count} articles`}>
+                <button key={c.name} onClick={() => setQuery(c.name)} title={`Search for ${c.name}`}>
                   <span className="swatch" style={{ background: c.color }} />
-                  {c.name}
+                  <span className="name">{c.name}</span>
+                  <span className="count">{c.count}</span>
                 </button>
               ))}
             </div>

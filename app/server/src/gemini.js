@@ -1,4 +1,15 @@
 import { GoogleGenAI } from '@google/genai';
+import { condense } from './extract.js';
+
+/**
+ * How much of an article the reader gets.
+ *
+ * A hundred words does not need forty thousand characters of input, and the
+ * budget is head-and-tail rather than a straight truncation, so the piece's
+ * conclusion survives.
+ */
+const SUMMARY_BUDGET = 16000;
+const EMBED_BUDGET = 8000;
 
 const TEXT_MODEL = process.env.GEMINI_TEXT_MODEL || 'gemini-3.6-flash';
 const EMBED_MODEL = process.env.GEMINI_EMBED_MODEL || 'gemini-embedding-001';
@@ -14,6 +25,27 @@ export class ReaderError extends Error {}
  * 404 even though ListModels still advertises it, so this names the model in
  * the message rather than letting it read as a problem with the article.
  */
+/**
+ * Retry the failures that are the service having a moment.
+ *
+ * A 503 is Gemini being briefly unavailable, and it was losing whole articles:
+ * one bad second and the reader gave up for good. Quota and bad-model errors
+ * are not retried — they will fail identically however many times we ask.
+ */
+async function withRetry(work, attempts = 3) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await work();
+    } catch (err) {
+      const status = err?.status;
+      const transient = status === 503 || status === 500 || status === 504 ||
+        /unavailable|internal error|deadline|socket|ECONNRESET|fetch failed/i.test(String(err?.message));
+      if (!transient || attempt >= attempts) throw err;
+      await new Promise((r) => setTimeout(r, 700 * 2 ** (attempt - 1)));
+    }
+  }
+}
+
 function readerError(err, model) {
   const message = String(err?.message ?? err);
   const status = err?.status;
@@ -80,21 +112,23 @@ export async function summarise({ title, text, vocabulary = [], titleIsReliable 
       ? `Title as published: ${title}`
       : `Working title (UNRELIABLE — pasted text, so this is just the opening words; write a real headline): ${title}`,
     'Article:',
-    text.slice(0, 40000)
+    condense(text, SUMMARY_BUDGET)
   ].join('\n\n');
 
   let res;
   try {
-    res = await ai.models.generateContent({
-      model: TEXT_MODEL,
-      contents: prompt,
-      config: {
-        systemInstruction: SYSTEM,
-        responseMimeType: 'application/json',
-        responseSchema: SCHEMA,
-        temperature: 0.4
-      }
-    });
+    res = await withRetry(() =>
+      ai.models.generateContent({
+        model: TEXT_MODEL,
+        contents: prompt,
+        config: {
+          systemInstruction: SYSTEM,
+          responseMimeType: 'application/json',
+          responseSchema: SCHEMA,
+          temperature: 0.4
+        }
+      })
+    );
   } catch (err) {
     throw readerError(err, TEXT_MODEL);
   }
@@ -120,11 +154,13 @@ export async function embed(text) {
 
   let res;
   try {
-    res = await ai.models.embedContent({
-      model: EMBED_MODEL,
-      contents: text.slice(0, 20000),
-      config: { taskType: 'SEMANTIC_SIMILARITY', outputDimensionality: EMBED_DIMS }
-    });
+    res = await withRetry(() =>
+      ai.models.embedContent({
+        model: EMBED_MODEL,
+        contents: condense(text, EMBED_BUDGET),
+        config: { taskType: 'SEMANTIC_SIMILARITY', outputDimensionality: EMBED_DIMS }
+      })
+    );
   } catch (err) {
     throw readerError(err, EMBED_MODEL);
   }

@@ -184,8 +184,19 @@ failed — pasting would fail identically, so the UI doesn't offer it and names
 the real cause instead).
 
 1. **Fetch** — `@mozilla/readability` over `jsdom` strips nav bars, cookie walls
-   and related-stories rails. Paywalled? The paste-the-text path takes the prose
-   directly and keeps the link attached.
+   and related-stories rails, and the result is converted to **markdown**, which
+   keeps the shape of the piece — headings, lists — that flat text throws away.
+   Paywalled? The paste-the-text path takes the prose directly and keeps the
+   link attached.
+
+   Markdown does not itself save tokens: measured against the flat text it
+   replaced, it costs about **3% more**, because there was never any HTML in the
+   payload to strip. The savings come from what it makes safe to drop — image
+   markup, the URLs behind link text, and trailing reference/see-also sections,
+   which on a long page are most of the tokens — and from a head-and-tail budget
+   rather than a straight truncation, so the piece's conclusion survives being
+   cut. Measured with `countTokens` over three Wikipedia articles: **7,735 →
+   4,207 tokens per article, 46% less**, and 57% on the longest.
 2. **Distil** — Gemini returns the summary and tags under a JSON schema. The
    owner's existing tag vocabulary goes into the prompt so two pieces on the same
    subject land under the same word instead of near-synonyms.

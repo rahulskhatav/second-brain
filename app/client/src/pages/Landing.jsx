@@ -63,7 +63,7 @@ export default function Landing() {
             />
           </div>
           <button className="btn btn-primary" style={{ minHeight: 44, paddingInline: 20 }} type="submit">
-            Remember it
+            Remember it!
           </button>
         </form>
         <div className="fineprint">Free while it's small. No card, no newsletter.</div>

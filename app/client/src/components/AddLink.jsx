@@ -86,7 +86,7 @@ export default function AddLink({ ingest, onClose }) {
 
           <div className="add-link-actions">
             <button className="btn btn-primary" type="submit" style={{ flex: 1 }}>
-              Remember it
+              Remember it!
             </button>
           </div>
 

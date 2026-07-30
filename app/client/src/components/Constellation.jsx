@@ -314,6 +314,17 @@ const Constellation = forwardRef(function Constellation(
       ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
       ctx.fill();
 
+      /* A watched thing reads differently from a read one: the core is hollowed
+         out, which is visible at a glance without adding another colour to a
+         palette that is already carrying the clusters. */
+      if (node.kind === 'video') {
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, Math.max(r * 0.42, px(1.1)), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalCompositeOperation = 'source-over';
+      }
+
       if (isSelected) {
         // The focus mark: two rings and a pair of ticks, as the design draws it.
         ctx.strokeStyle = '#9184d9';

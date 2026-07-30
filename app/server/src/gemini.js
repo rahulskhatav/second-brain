@@ -209,6 +209,88 @@ export async function summarise({ title, text, vocabulary = [], titleIsReliable 
   };
 }
 
+/**
+ * How long to let the reader watch before giving up.
+ *
+ * A serverless function is killed at its ceiling with no chance to explain
+ * itself, which leaves the article stuck mid-flight until the stale sweep finds
+ * it. Stopping first means someone gets told what happened.
+ */
+const VIDEO_TIMEOUT_MS = 45000;
+
+/**
+ * Watches a video and writes it up.
+ *
+ * Gemini takes a YouTube URL as a part of the request and does the watching
+ * itself — there is no transcript to fetch and nothing to scrape. Everything
+ * else is the same as an article: the same headings, the same tag rules, the
+ * same shared vocabulary.
+ */
+export async function summariseVideo({ url, title, channel, vocabulary = [] }) {
+  const ai = gemini();
+  if (!ai) throw new ReaderError('Watching a video needs a Gemini API key.');
+
+  const prompt = [
+    vocabulary.length
+      ? `The owner's existing tags, most used first: ${vocabulary.slice(0, 60).join(', ')}.`
+      : 'The owner has no tags yet — you are setting the vocabulary.',
+    title ? `The video is titled: ${title}` : 'The video has no title we could read.',
+    channel ? `Published by: ${channel}` : '',
+    'Watch it and write it up. Say what the speaker argues, not what happens on screen.'
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+
+  let res;
+  try {
+    res = await withRetry(() =>
+      Promise.race([
+        ai.models.generateContent({
+          model: TEXT_MODEL,
+          contents: [{ parts: [{ fileData: { fileUri: url.href } }, { text: prompt }] }],
+          config: {
+            systemInstruction: SYSTEM,
+            responseMimeType: 'application/json',
+            responseSchema: SCHEMA,
+            temperature: 0.4
+          }
+        }),
+        new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new ReaderError('That video took too long to watch. A shorter one will work.')),
+            VIDEO_TIMEOUT_MS
+          )
+        )
+      ])
+    );
+  } catch (err) {
+    if (err instanceof ReaderError) throw err;
+    const message = String(err?.message ?? err);
+    // The model refuses a video it cannot fetch — private, region-locked, or
+    // simply too long — and that is about the video, not about us.
+    if (/unsupported|cannot access|not supported|invalid.*(uri|url)|too large|duration/i.test(message)) {
+      throw new ReaderError("The reader couldn't watch that video. It may be private, restricted, or too long.");
+    }
+    throw readerError(err, TEXT_MODEL);
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(res.text);
+  } catch {
+    throw new ReaderError('The reader came back with something we could not parse.');
+  }
+
+  const finalTitle = String(parsed.title || title || 'Untitled video').trim().slice(0, 240);
+  return {
+    title: finalTitle,
+    label: shortLabel(parsed.label, finalTitle),
+    summary: String(parsed.summary || '').trim(),
+    sections: cleanSections(parsed.sections),
+    tags: cleanTags(parsed.tags)
+  };
+}
+
 /** Where the article hangs in the sky. Falls back to a lexical vector with no API key. */
 export async function embed(text) {
   const ai = gemini();

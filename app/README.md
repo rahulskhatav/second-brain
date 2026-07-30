@@ -197,6 +197,19 @@ the real cause instead).
    rather than a straight truncation, so the piece's conclusion survives being
    cut. Measured with `countTokens` over three Wikipedia articles: **7,735 →
    4,207 tokens per article, 46% less**, and 57% on the longest.
+   **YouTube links take a different route.** Scraping a YouTube page gives a
+   player shell and no article, so nothing is fetched: the URL is handed to
+   Gemini as a file part and the model watches the video itself. The title and
+   channel come from YouTube's keyless oEmbed endpoint, because the reader
+   invents a worse title than the real one. Everything downstream is identical —
+   same headings, same tag rules, same shared vocabulary — so a video and an
+   article cluster together when they are about the same thing.
+
+   Videos are given 45 seconds and then abandoned with an explanation. A
+   serverless function is killed at its ceiling without the chance to say
+   anything, which would leave the row stuck until the stale sweep found it. Long
+   videos will hit this; short ones are comfortable.
+
 2. **Distil** — Gemini returns the summary and tags under a JSON schema. The
    owner's existing tag vocabulary goes into the prompt so two pieces on the same
    subject land under the same word instead of near-synonyms.

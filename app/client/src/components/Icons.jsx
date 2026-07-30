@@ -54,6 +54,12 @@ export const CheckIcon = ({ size = 16, color = '#9184d9' }) => (
   </svg>
 );
 
+export const PlayIcon = ({ size = 12, color = 'currentColor' }) => (
+  <svg {...box(size)} fill={color} style={{ flex: 'none' }}>
+    <path d="M232 128a15.8 15.8 0 01-7.9 13.8l-112 64A15.9 15.9 0 0188 192V64a15.9 15.9 0 0124.1-13.8l112 64A15.8 15.8 0 01232 128z" />
+  </svg>
+);
+
 export const SignOutIcon = ({ size = 14 }) => (
   <svg {...box(size)} fill="currentColor" style={{ flex: 'none' }}>
     <path d="M112 216a8 8 0 01-8 8H48a16 16 0 01-16-16V48a16 16 0 0116-16h56a8 8 0 010 16H48v160h56a8 8 0 018 8zm109.7-93.7l-40-40a8 8 0 00-11.4 11.4L196.7 120H104a8 8 0 000 16h92.7l-26.4 26.3a8 8 0 0011.4 11.4l40-40a8 8 0 000-11.4z" />

@@ -26,6 +26,7 @@ const publicArticle = (r) => ({
   site: r.site,
   title: r.title,
   label: r.label ?? null,
+  kind: r.kind ?? 'article',
   summary: r.summary,
   sections: parseSections(r.sections),
   tags: parseTags(r.tags),

@@ -1,7 +1,15 @@
 import { record } from './analytics.js';
 import { all, one, query } from './db.js';
-import { ExtractError, extractFromText, extractFromUrl, normaliseUrl, siteOf } from './extract.js';
-import { embed, ReaderError, summarise } from './gemini.js';
+import {
+  ExtractError,
+  extractFromText,
+  extractFromUrl,
+  isYouTube,
+  normaliseUrl,
+  siteOf,
+  youTubeMeta
+} from './extract.js';
+import { embed, ReaderError, summarise, summariseVideo } from './gemini.js';
 import { vocabulary } from './graph.js';
 
 /** Stages that mean the pipeline still holds this row. */
@@ -23,10 +31,18 @@ export async function createArticle({ userId, url: rawUrl, text }) {
   const url = rawUrl ? normaliseUrl(rawUrl) : null;
   if (!url && !text) throw new ExtractError('Paste a link, or the article text.');
 
+  const video = Boolean(url) && isYouTube(url);
   return one(
-    `INSERT INTO articles (user_id, url, site, title, status, source_text)
-     VALUES ($1, $2, $3, $4, 'queued', $5) RETURNING *`,
-    [userId, url?.href ?? null, url ? siteOf(url) : 'pasted text', url?.hostname ?? 'Reading…', text ?? null]
+    `INSERT INTO articles (user_id, url, site, title, status, source_text, kind)
+     VALUES ($1, $2, $3, $4, 'queued', $5, $6) RETURNING *`,
+    [
+      userId,
+      url?.href ?? null,
+      url ? siteOf(url) : 'pasted text',
+      url?.hostname ?? 'Reading…',
+      text ?? null,
+      video ? 'video' : 'article'
+    ]
   );
 }
 
@@ -87,25 +103,43 @@ export async function runArticle({ userId, id }) {
 }
 
 async function pipeline(article, userId) {
-  const { id, url: href, source_text: pastedText } = article;
+  const { id, url: href, source_text: pastedText, kind } = article;
   const url = href ? new URL(href) : null;
+  const video = kind === 'video';
 
-  // 1 — fetch: the page, not the ads.
-  const { title, text } = pastedText ? extractFromText(pastedText, url) : await extractFromUrl(url);
-  await query('UPDATE articles SET title = $1, status = $2 WHERE id = $3', [title, 'reading', id]);
+  // 1 — fetch. For a video there is no page to strip: the title and channel
+  // come from YouTube, and the reader watches the thing itself.
+  let title;
+  let text = '';
+  let channel;
+  if (video) {
+    const meta = await youTubeMeta(url);
+    title = meta.title ?? url.hostname;
+    channel = meta.channel;
+  } else {
+    ({ title, text } = pastedText ? extractFromText(pastedText, url) : await extractFromUrl(url));
+  }
+  await query('UPDATE articles SET title = $1, site = $2, status = $3 WHERE id = $4', [
+    title,
+    video ? (channel ?? 'YouTube') : article.site,
+    'reading',
+    id
+  ]);
 
-  // 2 — distil: a hundred words, and tags chosen to be shared.
+  // 2 — distil: the gist, the sections, and tags chosen to be shared.
   const others = await all(
     `SELECT tags FROM articles WHERE user_id = $1 AND status = 'ready' AND id <> $2`,
     [userId, id]
   );
   const vocab = vocabulary(others).map(([tag]) => tag);
-  const { title: finalTitle, label, summary, sections, tags } = await summarise({
-    title,
-    text,
-    vocabulary: vocab,
-    titleIsReliable: !pastedText // pasted text has no headline of its own
-  });
+  const { title: finalTitle, label, summary, sections, tags } = video
+    ? await summariseVideo({ url, title, channel, vocabulary: vocab })
+    : await summarise({
+        title,
+        text,
+        vocabulary: vocab,
+        titleIsReliable: !pastedText // pasted text has no headline of its own
+      });
 
   await query(
     `UPDATE articles SET title = $1, label = $2, summary = $3, sections = $4, tags = $5, status = $6
@@ -114,7 +148,13 @@ async function pipeline(article, userId) {
   );
 
   // 3 — connect: place it by meaning.
-  const vector = await embed(`${finalTitle}\n\n${summary}\n\n${tags.join(', ')}\n\n${text.slice(0, 8000)}`);
+  /* The section points go in as well as the summary. A video has no body text
+     at all, so without them it would be placed on two sentences; and for an
+     article they are the part most about what it actually says. */
+  const distilled = (sections ?? []).flatMap((s) => s.points).join('\n');
+  const vector = await embed(
+    `${finalTitle}\n\n${summary}\n\n${distilled}\n\n${tags.join(', ')}\n\n${text.slice(0, 8000)}`
+  );
   await query(
     `UPDATE articles SET embedding = $1, status = 'ready', error = NULL, error_kind = NULL,
             source_text = NULL

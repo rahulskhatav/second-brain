@@ -57,6 +57,7 @@ const SCHEMA = `
     title      TEXT NOT NULL,
     label      TEXT,                          -- at most three words, for the map
     sections   TEXT,                          -- JSON: [{ heading, points[] }]
+    kind       TEXT NOT NULL DEFAULT 'article', -- 'article' or 'video'
     summary    TEXT,
     source_text TEXT,
     tags       TEXT NOT NULL DEFAULT '[]',
@@ -75,6 +76,7 @@ const SCHEMA = `
   -- Added after the first deployment; databases created before it get it here.
   ALTER TABLE articles ADD COLUMN IF NOT EXISTS label TEXT;
   ALTER TABLE articles ADD COLUMN IF NOT EXISTS sections TEXT;
+  ALTER TABLE articles ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'article';
 `;
 
 /* Run once per instance rather than once per request — concurrent cold starts

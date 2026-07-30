@@ -66,7 +66,7 @@ export default function AddLink({ ingest, onClose }) {
                 ref={inputRef}
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://"
+                placeholder="Paste a link, or a YouTube video"
                 aria-label="Article link"
               />
             </div>

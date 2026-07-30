@@ -229,6 +229,7 @@ export function buildGraph(rows) {
     return {
       id: r.id,
       title: r.title,
+      kind: r.kind ?? 'article',
       // Articles read before labels existed still get one, from their title.
       label: shortLabel(r.label, r.title),
       tags: parseTags(r.tags),

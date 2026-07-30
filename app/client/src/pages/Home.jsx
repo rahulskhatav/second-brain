@@ -124,7 +124,7 @@ export default function Home() {
         ) : (
           <>
             <h1>What did you read today?</h1>
-            <p>One link at a time. It takes about ten seconds and then it's yours forever.</p>
+            <p>An article or a YouTube video. It takes about ten seconds and then it's yours forever.</p>
             <form
               className="home-paste"
               onSubmit={(e) => {
@@ -137,7 +137,7 @@ export default function Home() {
                 <input
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
-                  placeholder="https://"
+                  placeholder="Paste a link, or a YouTube video"
                   aria-label="Article link"
                   autoFocus
                 />

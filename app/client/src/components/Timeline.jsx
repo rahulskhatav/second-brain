@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react';
-import { CloseIcon } from './Icons.jsx';
+import { CloseIcon, PlayIcon } from './Icons.jsx';
 
 const DAY = 86400000;
 
@@ -92,7 +92,14 @@ export default function Timeline({ articles, selectedId, onSelect, onClose }) {
               >
                 <span className="timeline-time">{clockTime(a.addedAt)}</span>
                 <span className="timeline-body">
-                  <span className="timeline-title">{a.title}</span>
+                  <span className="timeline-title">
+                    {a.kind === 'video' && (
+                      <span className="timeline-play">
+                        <PlayIcon size={9} />
+                      </span>
+                    )}
+                    {a.title}
+                  </span>
                   {a.status === 'ready' ? (
                     !!a.tags.length && <span className="timeline-tags">{a.tags.slice(0, 3).join(' · ')}</span>
                   ) : (

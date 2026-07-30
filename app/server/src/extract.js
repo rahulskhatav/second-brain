@@ -47,6 +47,59 @@ export function normaliseUrl(input) {
 
 export const siteOf = (url) => url.hostname.replace(/^www\./, '') + url.pathname.replace(/\/$/, '');
 
+const YOUTUBE_HOSTS = new Set([
+  'youtube.com',
+  'www.youtube.com',
+  'm.youtube.com',
+  'music.youtube.com',
+  'youtu.be',
+  'www.youtu.be'
+]);
+
+/**
+ * A video is not a page: scraping youtube.com gives a player shell and no
+ * article, so these take a different route entirely — the reader watches them.
+ */
+export function isYouTube(url) {
+  if (!url || !YOUTUBE_HOSTS.has(url.hostname)) return false;
+  if (url.hostname.endsWith('youtu.be')) return url.pathname.length > 1;
+  return (
+    (url.pathname === '/watch' && url.searchParams.has('v')) ||
+    url.pathname.startsWith('/shorts/') ||
+    url.pathname.startsWith('/live/') ||
+    url.pathname.startsWith('/embed/')
+  );
+}
+
+/**
+ * The video's own title and channel, from YouTube's oEmbed endpoint — public,
+ * keyless, and one small request. Without it the reader has to invent a title
+ * from what it hears, which it does less well than reading the real one.
+ */
+export async function youTubeMeta(url) {
+  try {
+    const res = await fetch(
+      `https://www.youtube.com/oembed?url=${encodeURIComponent(url.href)}&format=json`,
+      { signal: AbortSignal.timeout(8000) }
+    );
+    if (!res.ok) {
+      // 401/404 here is YouTube saying private, removed, or age-restricted.
+      if (res.status === 401 || res.status === 403 || res.status === 404) {
+        throw new ExtractError("That video isn't available — it may be private or removed.");
+      }
+      return {};
+    }
+    const data = await res.json();
+    return {
+      title: typeof data.title === 'string' ? data.title.slice(0, 240) : undefined,
+      channel: typeof data.author_name === 'string' ? data.author_name.slice(0, 120) : undefined
+    };
+  } catch (err) {
+    if (err instanceof ExtractError) throw err;
+    return {}; // oEmbed being unreachable is not a reason to refuse the video
+  }
+}
+
 /**
  * Pulls the page and strips it back to the article: nav bars, cookie walls and
  * related-stories rails go, the prose stays.

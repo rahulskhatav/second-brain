@@ -1234,6 +1234,18 @@ textarea {
   color: rgba(233, 233, 237, 0.82);
   text-wrap: pretty;
 }
+.panel-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.timeline-play {
+  display: inline-flex;
+  vertical-align: baseline;
+  margin-right: 5px;
+  color: var(--color-accent);
+}
+
 .panel-section {
   padding: 18px 22px 0;
 }

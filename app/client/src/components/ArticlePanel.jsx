@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
-import { CloseIcon, OpenIcon } from './Icons.jsx';
+import { CloseIcon, OpenIcon, PlayIcon } from './Icons.jsx';
 
 const addedOn = (iso) =>
   new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
@@ -51,8 +51,16 @@ export default function ArticlePanel({ id, onClose, onSelect, onForget }) {
       <aside className="panel" aria-label="Article">
         <div className="panel-head">
           <div style={{ flex: 1 }}>
-            <div className="kicker-quiet" style={{ color: 'var(--color-accent)', marginBottom: 12 }}>
-              {error ? 'Nothing here' : article ? `Added ${addedOn(article.addedAt)}` : 'Opening'}
+            <div
+              className="kicker-quiet panel-kicker"
+              style={{ color: 'var(--color-accent)', marginBottom: 12 }}
+            >
+              {article?.kind === 'video' && <PlayIcon size={10} />}
+              {error
+                ? 'Nothing here'
+                : article
+                  ? `${article.kind === 'video' ? 'Watched' : 'Added'} ${addedOn(article.addedAt)}`
+                  : 'Opening'}
             </div>
             <h2>{error ? 'Gone' : (article?.title ?? '…')}</h2>
           </div>
@@ -137,7 +145,7 @@ export default function ArticlePanel({ id, onClose, onSelect, onForget }) {
                 target="_blank"
                 rel="noreferrer noopener"
               >
-                Open the original
+                {article?.kind === 'video' ? 'Watch it again' : 'Open the original'}
               </a>
               <button
                 className="btn btn-ghost"

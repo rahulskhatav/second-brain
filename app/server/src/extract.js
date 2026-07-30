@@ -47,6 +47,39 @@ export function normaliseUrl(input) {
 
 export const siteOf = (url) => url.hostname.replace(/^www\./, '') + url.pathname.replace(/\/$/, '');
 
+/** Parameters that identify a campaign or a referrer, never the page itself. */
+const TRACKING_PARAMS =
+  /^(utm_|ic[id]$|igsh$|si$|fbclid$|gclid$|dclid$|msclkid$|mc_[ce]id$|ref$|ref_src$|source$|s_kwcid$|_hs[a-z]*$|yclid$|twclid$|at_[a-z_]+$)/i;
+
+/**
+ * One key per thing, so the same link twice is recognised as the same link.
+ *
+ * The same article reaches someone as a bare URL, with a newsletter's tracking
+ * parameters bolted on, with a trailing slash, over http, or with #section on
+ * the end — all of which are the same page. A YouTube video arrives as
+ * youtu.be, as /watch?v=, as /shorts/, and with a timestamp; all the same
+ * video, so it reduces to its id.
+ */
+export function urlKey(url) {
+  if (!url) return null;
+  const host = url.hostname.toLowerCase().replace(/^www\./, '').replace(/^m\./, '');
+
+  if (isYouTube(url)) {
+    const id = url.hostname.endsWith('youtu.be')
+      ? url.pathname.slice(1).split('/')[0]
+      : url.searchParams.get('v') ?? url.pathname.split('/').filter(Boolean).pop();
+    if (id) return `youtube:${id}`;
+  }
+
+  const params = [...url.searchParams.entries()]
+    .filter(([k]) => !TRACKING_PARAMS.test(k))
+    .sort(([a], [b]) => a.localeCompare(b));
+  const query = new URLSearchParams(params).toString();
+  const path = url.pathname.replace(/\/+$/, '') || '/';
+
+  return `${host}${path}${query ? `?${query}` : ''}`.toLowerCase();
+}
+
 const YOUTUBE_HOSTS = new Set([
   'youtube.com',
   'www.youtube.com',

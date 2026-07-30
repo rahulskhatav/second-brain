@@ -7,8 +7,10 @@ import {
   isYouTube,
   normaliseUrl,
   siteOf,
+  urlKey,
   youTubeMeta
 } from './extract.js';
+import { ensureNoDuplicates } from './dedupe.js';
 import { embed, ReaderError, summarise, summariseVideo } from './gemini.js';
 import { vocabulary } from './graph.js';
 
@@ -31,19 +33,33 @@ export async function createArticle({ userId, url: rawUrl, text }) {
   const url = rawUrl ? normaliseUrl(rawUrl) : null;
   if (!url && !text) throw new ExtractError('Paste a link, or the article text.');
 
+  await ensureNoDuplicates();
+
   const video = Boolean(url) && isYouTube(url);
-  return one(
-    `INSERT INTO articles (user_id, url, site, title, status, source_text, kind)
-     VALUES ($1, $2, $3, $4, 'queued', $5, $6) RETURNING *`,
+  const key = url ? urlKey(url) : null;
+
+  /* Already here? Hand back the one that exists. Reading it twice would spend
+     the quota again to arrive at the same node, and two identical stars sitting
+     on top of each other is worse than useless in a map. */
+  if (key) {
+    const already = await one('SELECT * FROM articles WHERE user_id = $1 AND url_key = $2', [userId, key]);
+    if (already) return { article: already, existing: true };
+  }
+
+  const article = await one(
+    `INSERT INTO articles (user_id, url, site, title, status, source_text, kind, url_key)
+     VALUES ($1, $2, $3, $4, 'queued', $5, $6, $7) RETURNING *`,
     [
       userId,
       url?.href ?? null,
       url ? siteOf(url) : 'pasted text',
       url?.hostname ?? 'Reading…',
       text ?? null,
-      video ? 'video' : 'article'
+      video ? 'video' : 'article',
+      key
     ]
   );
+  return { article, existing: false };
 }
 
 /**

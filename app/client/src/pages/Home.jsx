@@ -31,11 +31,13 @@ export default function Home() {
   useEffect(loadLibrary, [loadLibrary]);
 
   // Same pipeline the sky's own intake uses — see lib/useIngest.js.
-  const { active, failure, submit, reset, stageIndex, progress } = useIngest({
+  const { active, alreadyHad, failure, submit, reset, stageIndex, progress } = useIngest({
     onReady: (article) => {
       loadLibrary();
       setTimeout(() => navigate(`/sky?focus=${article.id}`), 900);
-    }
+    },
+    // Nothing to read — it is already up there, so go and look at it.
+    onExisting: (article) => setTimeout(() => navigate(`/sky?focus=${article.id}`), 1200)
   });
 
   const send = useCallback(
@@ -186,6 +188,18 @@ export default function Home() {
               </button>
             </div>
           </form>
+        )}
+
+        {alreadyHad && (
+          <div className="notice">
+            <InfoIcon style={{ marginTop: 2 }} />
+            <div>
+              <div className="title">You’ve already got this one</div>
+              <div className="body">
+                “{alreadyHad.title}” is already in your sky. Taking you to it — nothing was read twice.
+              </div>
+            </div>
+          </div>
         )}
 
         {failure && (

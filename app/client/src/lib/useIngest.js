@@ -19,13 +19,16 @@ export const STAGES = [
  * reached. A 409 means another article is being read; they go one at a time so
  * each sees the tags already in use, so we wait and ask again.
  */
-export function useIngest({ onReady } = {}) {
+export function useIngest({ onReady, onExisting } = {}) {
   const [active, setActive] = useState(null);
   const [failure, setFailure] = useState(null);
+  const [alreadyHad, setAlreadyHad] = useState(null);
   const pollRef = useRef(null);
   const startedRef = useRef(0);
   const readyRef = useRef(onReady);
   readyRef.current = onReady;
+  const onExistingRef = useRef(onExisting);
+  onExistingRef.current = onExisting;
 
   useEffect(() => {
     if (!active || ['ready', 'failed'].includes(active.status)) return undefined;
@@ -66,10 +69,21 @@ export function useIngest({ onReady } = {}) {
   const submit = useCallback(
     async (payload) => {
       setFailure(null);
+      setAlreadyHad(null);
       startedRef.current = Date.now();
       track('article_submitted', { source: payload.text ? 'pasted text' : 'link' });
       try {
-        const { article } = await api.addArticle(payload);
+        const { article, existing } = await api.addArticle(payload);
+
+        // Already in the sky: nothing to read, nothing to poll. Say so and go
+        // to the one that is there.
+        if (existing) {
+          track('article_already_had');
+          setAlreadyHad(article);
+          onExistingRef.current?.(article);
+          return article;
+        }
+
         setActive(article);
         // Deliberately not awaited — this request *is* the reading.
         runUntilAccepted(article.id).catch((err) =>
@@ -88,6 +102,7 @@ export function useIngest({ onReady } = {}) {
     clearTimeout(pollRef.current);
     setActive(null);
     setFailure(null);
+    setAlreadyHad(null);
   }, []);
 
   const stageIndex = STAGES.findIndex((s) => s.key === active?.status);
@@ -95,6 +110,7 @@ export function useIngest({ onReady } = {}) {
 
   return {
     active,
+    alreadyHad,
     failure,
     setFailure,
     submit,

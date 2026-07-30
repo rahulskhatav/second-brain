@@ -77,6 +77,7 @@ const SCHEMA = `
   ALTER TABLE articles ADD COLUMN IF NOT EXISTS label TEXT;
   ALTER TABLE articles ADD COLUMN IF NOT EXISTS sections TEXT;
   ALTER TABLE articles ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'article';
+  ALTER TABLE articles ADD COLUMN IF NOT EXISTS url_key TEXT;
 `;
 
 /* Run once per instance rather than once per request — concurrent cold starts

@@ -68,8 +68,10 @@ api.post('/articles', async (req, res, next) => {
   try {
     const url = req.body?.url ? String(req.body.url) : null;
     const text = req.body?.text ? String(req.body.text) : null;
-    const row = await createArticle({ userId: req.user.id, url, text });
-    res.status(202).json({ article: publicArticle(row) });
+    const { article, existing } = await createArticle({ userId: req.user.id, url, text });
+    // 200 for one we already had, 202 for one about to be read — so the client
+    // knows whether to start polling or just go and open it.
+    res.status(existing ? 200 : 202).json({ article: publicArticle(article), existing });
   } catch (err) {
     if (err instanceof ExtractError) return res.status(400).json({ error: err.message });
     next(err);

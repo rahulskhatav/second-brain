@@ -14,7 +14,7 @@ export default function AddLink({ ingest, onClose }) {
   const [pasting, setPasting] = useState(false);
   const inputRef = useRef(null);
 
-  const { active, failure, submit, reset, busy, stageIndex, progress } = ingest;
+  const { active, alreadyHad, failure, submit, reset, busy, stageIndex, progress } = ingest;
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -47,6 +47,12 @@ export default function AddLink({ ingest, onClose }) {
           ✕
         </button>
       </div>
+
+      {alreadyHad && (
+        <div className="add-link-note">
+          You’ve already got this one — “{alreadyHad.title}”. It’s selected in the map behind this.
+        </div>
+      )}
 
       {!active && (
         <form onSubmit={send}>

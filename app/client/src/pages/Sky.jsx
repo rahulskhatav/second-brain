@@ -94,7 +94,9 @@ export default function Sky() {
   const ingest = useIngest({
     onReady: (article) => {
       load().then(() => select(article.id));
-    }
+    },
+    // Already in the sky — go and open it rather than reading it again.
+    onExisting: (article) => select(article.id)
   });
 
   const openFromSearch = (id) => {

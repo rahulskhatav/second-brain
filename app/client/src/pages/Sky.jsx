@@ -104,6 +104,33 @@ export default function Sky() {
     select(id);
   };
 
+  /**
+   * Forgetting one, from the map or from the panel.
+   *
+   * The node goes immediately rather than after the round trip — it is the
+   * thing the click was about — and the sky is reloaded behind that so the
+   * clusters and edges settle to what is actually left.
+   */
+  const forget = useCallback(
+    async (id) => {
+      setGraph((g) => ({
+        ...g,
+        nodes: g.nodes.filter((n) => n.id !== id),
+        links: g.links.filter((l) => (l.source?.id ?? l.source) !== id && (l.target?.id ?? l.target) !== id)
+      }));
+      setArticles((list) => list.filter((a) => a.id !== id));
+      if (selectedId === id) select(null);
+      track('article_forgotten');
+      try {
+        await api.forget(id);
+      } catch {
+        /* it may already be gone; the reload below is the truth either way */
+      }
+      load();
+    },
+    [load, select, selectedId]
+  );
+
   const closeAdd = useCallback(() => {
     setAdding(false);
     ingest.reset();
@@ -147,6 +174,7 @@ export default function Sky() {
           highlightIds={highlightIds}
           onSelect={select}
           onLayoutSettled={saveLayout}
+          onForget={forget}
         />
       )}
 
@@ -291,15 +319,7 @@ export default function Sky() {
           id={selectedId}
           onClose={() => select(null)}
           onSelect={select}
-          onForget={(id) => {
-            select(null);
-            setGraph((g) => ({
-              ...g,
-              nodes: g.nodes.filter((n) => n.id !== id),
-              links: g.links.filter((l) => l.source !== id && l.target !== id)
-            }));
-            load();
-          }}
+          onForget={forget}
         />
       )}
     </div>

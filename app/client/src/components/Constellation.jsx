@@ -146,13 +146,28 @@ function tracePaddedHull(ctx, hull, pad) {
  * the sky back exactly as it was. Only genuinely new articles are free to move.
  */
 const Constellation = forwardRef(function Constellation(
-  { data, dim = false, showLabels = true, selectedId = null, highlightIds = null, onSelect, onLayoutSettled },
+  {
+    data,
+    dim = false,
+    showLabels = true,
+    selectedId = null,
+    highlightIds = null,
+    onSelect,
+    onLayoutSettled,
+    onForget
+  },
   ref
 ) {
   const fgRef = useRef(null);
   const wrapRef = useRef(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [hoverId, setHoverId] = useState(null);
+  /* Where the hovered node is on screen, for the delete button that sits over
+     it. Canvas has nothing to attach a button to, so it is a real element
+     positioned on top. */
+  const [hovered, setHovered] = useState(null);
+  const [confirming, setConfirming] = useState(null);
+  const leaveTimer = useRef(null);
   /* Bumped when the layout settles. Which titles to print depends on where
      nodes ended up, and on a sky being simulated for the first time they have
      no position yet — without this the choice is made against nothing and no
@@ -489,6 +504,45 @@ const Constellation = forwardRef(function Constellation(
    * the end of a pan — drag the map and the panel would shut. A press and
    * release within a few pixels is a click; anything further is a drag.
    */
+  /**
+   * Keeping the delete button reachable.
+   *
+   * The pointer has to leave the node to get to the button, which would
+   * normally take the button away with it — so leaving is delayed, and entering
+   * the button cancels the departure.
+   */
+  const handleNodeHover = useCallback(
+    (node) => {
+      clearTimeout(leaveTimer.current);
+      setHoverId(node?.id ?? null);
+      if (!node) {
+        leaveTimer.current = setTimeout(() => {
+          setHovered(null);
+          setConfirming(null);
+        }, 260);
+        return;
+      }
+      const screen = fgRef.current?.graph2ScreenCoords?.(node.x, node.y);
+      if (screen) setHovered({ id: node.id, title: node.title, x: screen.x, y: screen.y });
+    },
+    []
+  );
+
+  const keepHover = useCallback(() => clearTimeout(leaveTimer.current), []);
+  const releaseHover = useCallback(() => {
+    leaveTimer.current = setTimeout(() => {
+      setHovered(null);
+      setConfirming(null);
+    }, 260);
+  }, []);
+
+  // Panning or zooming moves the node out from under the button.
+  const dropHover = useCallback(() => {
+    setHovered(null);
+    setConfirming(null);
+    setHoverId(null);
+  }, []);
+
   const pressRef = useRef(null);
 
   const onPointerDown = useCallback((e) => {
@@ -536,8 +590,50 @@ const Constellation = forwardRef(function Constellation(
           d3VelocityDecay={0.32}
           onEngineStop={handleEngineStop}
           onNodeClick={(node) => onSelect?.(node.id)}
-          onNodeHover={(node) => setHoverId(node?.id ?? null)}
+          onNodeHover={handleNodeHover}
+          onZoom={dropHover}
         />
+      )}
+
+      {/* Forgetting a node from the map. Two clicks, not one: this deletes an
+          article for good, and a cross that appears under a moving pointer is
+          exactly the thing you hit by accident. */}
+      {hovered && onForget && (
+        <div
+          className="node-forget"
+          style={{ left: hovered.x, top: hovered.y }}
+          onMouseEnter={keepHover}
+          onMouseLeave={releaseHover}
+        >
+          {confirming === hovered.id ? (
+            <div className="node-forget-confirm">
+              <span>Forget it?</span>
+              <button
+                className="node-forget-yes"
+                onClick={() => {
+                  onForget(hovered.id);
+                  dropHover();
+                }}
+              >
+                Forget
+              </button>
+              <button className="node-forget-no" onClick={() => setConfirming(null)}>
+                Keep
+              </button>
+            </div>
+          ) : (
+            <button
+              className="node-forget-cross"
+              onClick={() => setConfirming(hovered.id)}
+              aria-label={`Forget ${hovered.title ?? 'this article'}`}
+              title="Forget this"
+            >
+              <svg width="9" height="9" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true">
+                <path d="M205.7 194.3a8 8 0 01-11.4 11.4L128 139.3l-66.3 66.4a8 8 0 01-11.4-11.4l66.4-66.3-66.4-66.3a8 8 0 0111.4-11.4l66.3 66.4 66.3-66.4a8 8 0 0111.4 11.4L139.3 128z" />
+              </svg>
+            </button>
+          )}
+        </div>
       )}
     </div>
   );

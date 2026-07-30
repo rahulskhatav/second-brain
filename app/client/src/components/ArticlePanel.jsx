@@ -35,11 +35,12 @@ export default function ArticlePanel({ id, onClose, onSelect, onForget }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  /* The caller owns deletion — it also has to update the map, and doing the
+     request here as well meant two of them for one click. */
   const forget = async () => {
     setBusy(true);
     try {
-      await api.forget(id);
-      onForget?.(id);
+      await onForget?.(id);
     } finally {
       setBusy(false);
     }

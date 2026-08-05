@@ -261,8 +261,8 @@ articles on canvas via `react-force-graph-2d`, pannable, zoomable, clickable.
 
 ## API
 
-All routes need the session cookie except `POST /api/auth/register|login` and
-`GET /api/status`.
+All routes need the session cookie except `POST /api/auth/register|login|token`
+and `GET /api/status`.
 
 | Route | What |
 | --- | --- |
@@ -274,6 +274,30 @@ All routes need the session cookie except `POST /api/auth/register|login` and
 | `GET /api/graph` | `{ nodes, links, clusters }` |
 | `POST /api/graph/layout` | Store settled positions |
 | `GET /api/search?q=` | Tag-and-prose search, tags weighted highest |
+
+### Signing in without a cookie
+
+A browser extension cannot use the session cookie: it is httpOnly, signed and
+`SameSite=Lax`, and a request fired from an extension's service worker is
+cross-site, so a Lax cookie is withheld. `POST /api/auth/token` takes the same
+username and password and hands back the session token itself, which the caller
+sends as `Authorization: Bearer <token>` — accepted anywhere the cookie is.
+
+It is the same row in the same `sessions` table, with the same absence of an
+expiry, so nothing about sessions is duplicated and nothing about the web
+client changes. `POST /api/auth/token/revoke` deletes that one token and leaves
+any others alone, which is what signing out of the extension should do.
+
+| Route | What |
+| --- | --- |
+| `POST /api/auth/token` | `{ username, password }` → `{ token, user }` |
+| `POST /api/auth/token/revoke` | Drops the bearer token it was called with |
+
+CORS is granted to `chrome-extension://` and `moz-extension://` origins only,
+for `authorization` and `content-type`, and deliberately **without**
+`Access-Control-Allow-Credentials` — the bearer token means no cookie is
+involved, and handing credentials to an origin that cannot be verified would be
+a worse trade. `extension/README.md` is the brief for the extension itself.
 
 ## Not built
 

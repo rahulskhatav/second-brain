@@ -1,3 +1,5 @@
+import { track } from './analytics.js';
+
 export class ApiError extends Error {
   constructor(message, { status, field } = {}) {
     super(message);
@@ -6,8 +8,24 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * The route, not the request: /articles/41 and /articles/42 are one line on a
+ * chart, and the id is a fact about what someone read. The search term goes the
+ * same way — the length of it is already tracked, the words never are.
+ */
+const routeShape = (path) =>
+  path
+    .split('?')[0]
+    .replace(/\/\d+/g, '/:id');
+
 async function request(path, { method = 'GET', body, signal } = {}) {
   let res;
+  const startedAt = performance.now();
+  const route = routeShape(path);
+  /** How long it took and how it ended — never what was asked for. */
+  const timed = (status, ok) =>
+    track('api_call', { route, method, status, ok, ms: Math.round(performance.now() - startedAt) });
+
   try {
     res = await fetch(`/api${path}`, {
       method,
@@ -17,9 +35,14 @@ async function request(path, { method = 'GET', body, signal } = {}) {
       signal
     });
   } catch (err) {
+    // An abort is the caller changing its mind — a superseded search, a closed
+    // panel — not a failure, and counting it as one would bury the real ones.
     if (err?.name === 'AbortError') throw err;
+    timed(0, false);
     throw new ApiError("Can't reach the server.");
   }
+
+  timed(res.status, res.ok);
 
   /* Read as text first. A non-JSON body is itself the diagnosis: it means
      something other than the API answered — a static 404 page, a platform error

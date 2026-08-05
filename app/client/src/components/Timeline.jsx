@@ -74,7 +74,9 @@ export default function Timeline({ articles, selectedId, onSelect, onClose }) {
         </button>
       </div>
 
-      <div className="timeline-scroll">
+      {/* Titles and tags, in order — the head above is only a count, so the
+          masking starts here. */}
+      <div className="timeline-scroll ph-mask ph-no-autocapture">
         {groups.length === 0 && <p className="timeline-empty">Nothing yet. Add the last thing you read.</p>}
 
         {groups.map((group) => (

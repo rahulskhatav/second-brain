@@ -284,7 +284,9 @@ export default function Sky() {
 
       {searching && (
         <div className="results-wrap">
-          <div className="results">
+          {/* What they searched for is already never sent; the results are the
+              other half of the same fact. */}
+          <div className="results ph-mask ph-no-autocapture">
             <div className="kicker-quiet">
               {results.length === 0
                 ? 'Nothing you’ve read matches that'

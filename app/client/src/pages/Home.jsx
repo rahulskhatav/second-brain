@@ -96,7 +96,7 @@ export default function Home() {
             </p>
 
             <div className="ingest">
-              <div className="ingest-url">
+              <div className="ingest-url ph-mask ph-no-autocapture">
                 <LinkIcon size={13} color="rgba(233,233,237,.4)" />
                 <span>{active.site ?? active.url}</span>
               </div>
@@ -195,7 +195,7 @@ export default function Home() {
             <InfoIcon style={{ marginTop: 2 }} />
             <div>
               <div className="title">You’ve already got this one</div>
-              <div className="body">
+              <div className="body ph-mask ph-no-autocapture">
                 “{alreadyHad.title}” is already in your sky. Taking you to it — nothing was read twice.
               </div>
             </div>

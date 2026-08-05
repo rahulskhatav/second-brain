@@ -49,7 +49,10 @@ export default function ArticlePanel({ id, onClose, onSelect, onForget }) {
   return (
     <>
       <div className="panel-scrim" />
-      <aside className="panel" aria-label="Article">
+      {/* The whole panel is one article — title, link, summary, tags, the
+          neighbours' titles. Masked wholesale rather than field by field, so a
+          field added later is covered without anyone having to remember. */}
+      <aside className="panel ph-mask ph-no-autocapture" aria-label="Article">
         <div className="panel-head">
           <div style={{ flex: 1 }}>
             <div

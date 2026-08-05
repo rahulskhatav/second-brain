@@ -8,20 +8,35 @@ let live = false;
 /**
  * Analytics, off unless a key is configured.
  *
- * Autocapture is deliberately disabled. It records the text of whatever a
- * person clicks, and in this app that text is the titles of things they have
- * read — which is the one thing the product promises is theirs alone. Every
- * event below is written by hand, and none of them carries an article's title,
- * its URL, or what someone searched for.
+ * Autocapture and replay are on, but never over the parts of the screen that
+ * show what someone has read — those are the one thing the product promises is
+ * theirs alone. Two classes do that work, and any new component showing a
+ * title, a URL or a summary needs them:
+ *
+ *   ph-no-autocapture   the element and everything under it is not autocaptured
+ *   ph-mask             its text is replaced with dots in a session replay
+ *
+ * The hand-written events below carry neither titles, URLs, nor search terms,
+ * and that stays true regardless of what autocapture picks up.
  */
 export function startAnalytics() {
   if (!KEY || live) return;
   posthog.init(KEY, {
     api_host: HOST,
-    autocapture: false,
+    autocapture: true,
     capture_pageview: false, // sent on navigation instead, so SPA routes register
     capture_pageleave: true,
-    disable_session_recording: true,
+    capture_performance: true, // per-request timings, in the replay's network tab
+    session_recording: {
+      maskAllInputs: true, // the link box, the paste area, search, passwords
+      maskTextSelector: '.ph-mask',
+      /* The sky is a canvas, and without this every replay of the main screen
+         plays back as a blank rectangle. The cost is that node labels are
+         recorded — the one place replay sees what someone has read. The low
+         frame rate and quality are for file size; they are not a privacy
+         measure. Drop recordCanvas to false if that trade stops being worth it. */
+      captureCanvas: { recordCanvas: true, canvasFps: 3, canvasQuality: '0.4' }
+    },
     person_profiles: 'identified_only'
   });
   live = true;
